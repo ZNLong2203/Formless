@@ -1,44 +1,41 @@
 @import "tailwindcss";
 
 /* ==================================================================
-   Formless — drafted, not generated.
+   Formless
 
-   The product's idea is that a database draws itself as evidence
-   arrives. So the interface is a drafting sheet: cyanotype ground,
-   chalk hairlines, annotations tied to the thing they describe, and
-   revisions marked in amber the way a draughtsman would mark them.
+   Character lives in the typography — an engraved serif against
+   technical mono — and nowhere else. Earlier versions carried a grid
+   background, dotted leader lines and corner ticks all at once; three
+   line systems competing on one screen, which read as noise rather
+   than craft. The surface is now quiet so the data can be loud.
    ================================================================== */
 
 :root {
-  --sheet: #071523;
-  --sheet-raised: #0a1d30;
-  --sheet-inset: #051020;
+  --bg: #0c0d10;
+  --panel: #131419;
+  --line: #22242c;
+  --line-strong: #32353f;
 
-  --line: rgb(168 205 240 / 0.16);
-  --line-mid: rgb(168 205 240 / 0.28);
-  --line-strong: rgb(168 205 240 / 0.46);
+  --text: #f2f4f8;
+  --text-dim: #a7adbb;
+  --text-faint: #6f7686;
 
-  --chalk: #eef5fd;
-  --chalk-dim: #b3c8de;
-  --chalk-faint: #8099b5;
+  /* Revisions. A new column is an amendment worth noticing. */
+  --mark: #ffc247;
+  --mark-soft: rgb(255 194 71 / 0.12);
 
-  /* Revisions. A new column is an amendment to the drawing. */
-  --mark: #f2b134;
-  --mark-soft: rgb(242 177 52 / 0.14);
-
-  --figure: #7fd4c1; /* numeric values, so figures read apart from prose */
+  /* Figures, so numbers read apart from prose at a glance. */
+  --figure: #7fe3c4;
 }
 
 @theme inline {
-  --color-sheet: var(--sheet);
-  --color-raised: var(--sheet-raised);
-  --color-inset: var(--sheet-inset);
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
   --color-line: var(--line);
-  --color-line-mid: var(--line-mid);
   --color-line-strong: var(--line-strong);
-  --color-chalk: var(--chalk);
-  --color-dim: var(--chalk-dim);
-  --color-faint: var(--chalk-faint);
+  --color-ink: var(--text);
+  --color-dim: var(--text-dim);
+  --color-faint: var(--text-faint);
   --color-mark: var(--mark);
   --color-figure: var(--figure);
   --font-serif: var(--font-serif);
@@ -56,169 +53,106 @@ body {
 }
 
 body {
-  background: var(--sheet);
-  color: var(--chalk);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-mono-sheet), ui-monospace, monospace;
   font-size: 13.5px;
+  line-height: 1.55;
 }
 
-/* ---------------- Graph paper ---------------- */
-
-.graph {
-  background-image:
-    linear-gradient(to right, rgb(168 205 240 / 0.038) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(168 205 240 / 0.038) 1px, transparent 1px),
-    linear-gradient(to right, rgb(168 205 240 / 0.014) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(168 205 240 / 0.014) 1px, transparent 1px);
-  background-size:
-    112px 112px,
-    112px 112px,
-    16px 16px,
-    16px 16px;
+/* Small uppercase labels. Used sparingly — they are signposts, not texture. */
+.label {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
-/* ---------------- Drafting marks ---------------- */
-
-/* Corner ticks, the way a plate is registered on a sheet. */
-.ticked {
+/* A table wider than the page is cut off at the edge, which reads as broken
+   rather than scrollable. A fade says there is more to the right. */
+.scroller {
   position: relative;
 }
-.ticked::before,
-.ticked::after {
+
+.scroller::after {
   content: "";
   position: absolute;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--line-strong);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 52px;
   pointer-events: none;
-}
-.ticked::before {
-  top: -1px;
-  left: -1px;
-  border-right: 0;
-  border-bottom: 0;
-}
-.ticked::after {
-  right: -1px;
-  bottom: -1px;
-  border-left: 0;
-  border-top: 0;
+  background: linear-gradient(to right, transparent, var(--bg));
 }
 
-/* The dotted run between a part and its annotation. */
-.leader {
-  flex: 1 1 auto;
-  min-width: 1.5rem;
-  height: 1px;
-  background-image: radial-gradient(
-    circle,
-    var(--line-mid) 0.8px,
-    transparent 0.8px
-  );
-  background-size: 5px 1px;
-  background-repeat: repeat-x;
-  background-position: center;
-}
+/* ---------------- Motion ---------------- */
 
-.rule {
-  height: 1px;
-  background: var(--line);
-}
-
-/* Uppercase micro-labels, as on a title block. */
-.break-anywhere {
-  overflow-wrap: anywhere;
-}
-
-.stamp {
-  font-size: 10px;
-  letter-spacing: 0.17em;
-  text-transform: uppercase;
-  color: var(--chalk-faint);
-}
-
-/* ---------------- Revision motion ---------------- */
-
-/* A new row is drawn in: the leader runs out, then the text settles. */
-@keyframes draw-in {
+/* A newly grown column fades up and its amber highlight decays. */
+@keyframes arrive {
   from {
-    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+    transform: translateY(3px);
   }
   to {
-    clip-path: inset(0 0 0 0);
+    opacity: 1;
+    transform: none;
   }
 }
 
-@keyframes amber-decay {
+@keyframes decay {
   0%,
-  55% {
+  45% {
     background-color: var(--mark-soft);
+    border-color: var(--mark);
   }
   100% {
     background-color: transparent;
+    border-color: var(--line);
   }
 }
 
 .revised {
   animation:
-    draw-in 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) both,
-    amber-decay 5s ease-out 0.65s both;
+    arrive 0.4s ease-out both,
+    decay 5s ease-out 0.4s both;
 }
 
-@keyframes beacon {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.beacon {
-  animation: beacon 2.4s ease-in-out infinite;
-}
-
-/* A surveyor's sweep while the sheet is being amended. */
-@keyframes survey {
+@keyframes working {
   from {
     transform: translateX(-100%);
   }
   to {
-    transform: translateX(400%);
+    transform: translateX(300%);
   }
 }
-.survey::after {
+
+.working::after {
   content: "";
   position: absolute;
   inset-block: 0;
-  width: 25%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgb(242 177 52 / 0.5),
-    transparent
-  );
-  animation: survey 1.5s linear infinite;
+  width: 33%;
+  background: linear-gradient(90deg, transparent, var(--mark), transparent);
+  animation: working 1.4s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .revised,
-  .beacon,
-  .survey::after {
+  .working::after {
     animation: none;
   }
 }
 
 ::selection {
   background: var(--mark);
-  color: #2a1a00;
+  color: #2a1d00;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--line-mid) transparent;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
-textarea:focus {
+textarea:focus,
+input:focus {
   outline: none;
 }
