@@ -94,6 +94,18 @@ body {
   box-shadow: 0 3px 0 -2px var(--rule);
 }
 
+/* A highlighter drawn over the one phrase the product lives or dies on.
+   Sitting at 55% height it reads as ink laid over text, not a filled box. */
+.marker {
+  background: linear-gradient(
+    to bottom,
+    transparent 52%,
+    rgb(158 73 22 / 0.22) 52%
+  );
+  padding: 0 3px;
+  box-decoration-break: clone;
+}
+
 /* ---------------- Navigation ---------------- */
 
 .tab {
@@ -109,6 +121,7 @@ body {
 
 .tab[data-active="true"] {
   color: var(--ink);
+  font-weight: 600;
 }
 
 /* The underline grows from the centre, so switching tabs reads as a
@@ -119,8 +132,8 @@ body {
   left: 0;
   right: 0;
   bottom: -1px;
-  height: 1.5px;
-  background: var(--ink);
+  height: 2px;
+  background: var(--mark);
   transform: scaleX(0);
   transition: transform 0.22s cubic-bezier(0.3, 0.8, 0.4, 1);
 }

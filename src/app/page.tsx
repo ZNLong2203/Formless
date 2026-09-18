@@ -302,7 +302,9 @@ export default function Console() {
     <div className="mx-auto w-full max-w-[1280px] px-5 pb-20 sm:px-8">
       {/* ---------------- Masthead ---------------- */}
       <header className="double-rule flex flex-wrap items-baseline gap-x-5 gap-y-2 pb-5 pt-9">
-        <h1 className="font-serif text-[30px] leading-none">Formless</h1>
+        <h1 className="font-serif text-[31px] font-bold leading-none tracking-tight">
+          Formless
+        </h1>
         <p className="text-[12.5px] text-dim">a CRM that builds its own database</p>
         <span className="label ml-auto flex items-center gap-2">
           <span
@@ -317,7 +319,9 @@ export default function Console() {
       {/* One line, before anything else, answering "what is this". */}
       <p className="mt-5 text-[13px] text-dim">
         Send any message; the columns get created for you.{" "}
-        <span className="text-ink">You never design a schema.</span>
+        <span className="marker font-semibold text-ink">
+          You never design a schema.
+        </span>
       </p>
 
       {error && (
@@ -360,7 +364,7 @@ export default function Console() {
                 run();
               }
             }}
-            rows={mode === "send" ? 7 : 3}
+            rows={7}
             spellCheck={false}
             placeholder={active.placeholder}
             className="mt-3 block w-full max-w-full resize-y border border-rule bg-inset px-3.5 py-3 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
@@ -403,7 +407,7 @@ export default function Console() {
         {/* ---------------- Right: the workspace ---------------------- */}
         <div ref={workspaceRef} className="min-w-0 scroll-mt-6">
           <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 border-b border-rule pb-3">
-            <h2 className="font-serif text-[23px] leading-none">
+            <h2 className="font-serif text-[23px] font-bold leading-none tracking-tight">
               Your database
             </h2>
             <span className="flex items-baseline gap-4">
@@ -489,7 +493,7 @@ function Figure({ value, label }: { value: number; label: string }) {
   const shown = useCountUp(value);
   return (
     <span className="flex items-baseline gap-1.5">
-      <span className="font-serif text-[19px] leading-none tabular-nums">
+      <span className="font-serif text-[20px] font-bold leading-none tabular-nums text-mark">
         {shown}
       </span>
       <span className="label">{label}</span>
@@ -544,7 +548,7 @@ function Revision({ result }: { result: IngestResult }) {
   return (
     <div className="panel-in mt-5 border-l-2 border-mark bg-mark/[0.06] px-4 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-serif text-[17px] leading-none text-mark">
+        <span className="font-serif text-[17px] font-bold leading-none text-mark">
           {headline}
         </span>
         <span className="text-[12px] text-dim">{result.table}</span>
@@ -715,7 +719,9 @@ function Table({
   return (
     <article className="min-w-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="font-serif text-[21px] leading-none">{table.name}</h3>
+        <h3 className="font-serif text-[21px] font-bold leading-none tracking-tight">
+          {table.name}
+        </h3>
         <span className="label">
           {table.columns.length} columns · {table.rowCount} records
         </span>

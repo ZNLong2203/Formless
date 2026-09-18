@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Fraunces, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
-// A drafting sheet's title block: engraved serif for names and figures,
-// technical mono for everything the machine wrote.
-const serif = Instrument_Serif({
+// A printed manual's voice: a serif with real weight for headings, so a title
+// reads as a title, and technical mono for everything the machine wrote.
+// Instrument Serif ships a single weight, which left every heading the same
+// thickness as body copy.
+const serif = Fraunces({
   variable: "--font-serif",
-  weight: "400",
-  style: ["normal", "italic"],
+  weight: ["600", "700"],
   subsets: ["latin"],
 });
 
