@@ -125,8 +125,28 @@ export interface Catalogue {
   rationales: RationaleMap;
 }
 
+/**
+ * Catalogue cache.
+ *
+ * The journal only changes when this app appends to it, so the folded result is
+ * held briefly instead of re-read on every request — that removes one ~3s round
+ * trip from each page load. `invalidateCatalogue` clears it the moment the
+ * schema grows, and the TTL bounds staleness for other instances in a scaled
+ * deployment, where a stale read means a slightly late column, never a wrong
+ * record.
+ */
+const CATALOGUE_TTL_MS = 10_000;
+let catalogueCache: { at: number; value: Catalogue } | undefined;
+
+export function invalidateCatalogue(): void {
+  catalogueCache = undefined;
+}
+
 /** Fold the journal into the live schema. */
 export async function loadCatalogue(): Promise<Catalogue> {
+  if (catalogueCache && Date.now() - catalogueCache.at < CATALOGUE_TTL_MS) {
+    return catalogueCache.value;
+  }
   await ensureMeta();
   const rows = await selectData(JOURNAL_TABLE, undefined, "Fold LivingDNA journal");
 
@@ -157,7 +177,9 @@ export async function loadCatalogue(): Promise<Catalogue> {
     }
   }
 
-  return { schema, rationales };
+  const catalogue: Catalogue = { schema, rationales };
+  catalogueCache = { at: Date.now(), value: catalogue };
+  return catalogue;
 }
 
 export async function loadSchema(): Promise<SchemaSnapshot> {
@@ -237,6 +259,7 @@ export async function commitGrowth(growth: GrowthResult): Promise<void> {
     },
     `Journal ${growth.added.length} new column(s) on ${growth.table}`,
   );
+  invalidateCatalogue();
 }
 
 export async function logEvent(

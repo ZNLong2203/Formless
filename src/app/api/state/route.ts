@@ -20,10 +20,12 @@ export async function GET() {
       (name) => !META_TABLE_NAMES.includes(name),
     );
 
-    // One read per table; a young table failing shouldn't blank the dashboard.
-    const reads = await Promise.allSettled(
-      businessTables.map((table) => selectData(table, undefined, `Load ${table}`)),
-    );
+    // Reads don't mutate, so every table and the activity feed load together.
+    // A young table failing shouldn't blank the dashboard, hence allSettled.
+    const [eventsResult, ...reads] = await Promise.allSettled([
+      selectData(EVENT_TABLE, undefined, "Load activity"),
+      ...businessTables.map((table) => selectData(table, undefined, `Load ${table}`)),
+    ]);
 
     const tables = businessTables.map((name, index) => {
       const result = reads[index];
@@ -40,9 +42,8 @@ export async function GET() {
       };
     });
 
-    const events = await selectData(EVENT_TABLE, undefined, "Load activity").catch(
-      () => [] as NeuralRow[],
-    );
+    const events: NeuralRow[] =
+      eventsResult.status === "fulfilled" ? eventsResult.value : [];
 
     return NextResponse.json({
       tables,
