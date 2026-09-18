@@ -19,6 +19,7 @@ import {
   selectData,
   type NeuralColumn,
   type NeuralColumnType,
+  type NeuralRow,
   type NeuralTable,
 } from "./neural";
 
@@ -131,14 +132,14 @@ export function invalidateCatalogue(): void {
   catalogueCache = undefined;
 }
 
-/** Fold the journal into the live schema. */
-export async function loadCatalogue(): Promise<Catalogue> {
-  if (catalogueCache && Date.now() - catalogueCache.at < CATALOGUE_TTL_MS) {
-    return catalogueCache.value;
-  }
-  await ensureMeta();
-  const rows = await selectData(JOURNAL_TABLE, undefined, "Fold LivingDNA journal");
-
+/**
+ * Fold journal rows into the live schema.
+ *
+ * Pure, and deliberately tolerant: the kernel's non-atomic writes can duplicate
+ * a row, so folding dedupes by column name rather than trusting the journal to
+ * contain each column exactly once.
+ */
+export function foldJournal(rows: readonly NeuralRow[]): Catalogue {
   // Oldest first, so the earliest rationale for a column is the one kept.
   const ordered = [...rows].sort((a, b) =>
     String(a._created_at ?? "").localeCompare(String(b._created_at ?? "")),
@@ -166,7 +167,18 @@ export async function loadCatalogue(): Promise<Catalogue> {
     }
   }
 
-  const catalogue: Catalogue = { schema, rationales };
+  return { schema, rationales };
+}
+
+/** Read the journal and fold it, holding the result briefly. */
+export async function loadCatalogue(): Promise<Catalogue> {
+  if (catalogueCache && Date.now() - catalogueCache.at < CATALOGUE_TTL_MS) {
+    return catalogueCache.value;
+  }
+  await ensureMeta();
+  const rows = await selectData(JOURNAL_TABLE, undefined, "Fold LivingDNA journal");
+
+  const catalogue = foldJournal(rows);
   catalogueCache = { at: Date.now(), value: catalogue };
   return catalogue;
 }
@@ -189,11 +201,11 @@ export interface GrowthResult {
  * so LivingDNA holds the whole shape. The journal row is written by the caller
  * via `commitGrowth`, which lets it overlap with the record insert.
  */
-export async function growSchema(
+export function planGrowth(
   table: string,
   additions: Array<{ name: string; type: NeuralColumnType; rationale: string }>,
   schema: SchemaSnapshot,
-): Promise<GrowthResult> {
+): GrowthResult {
   const existing = schema[table] ?? [];
   const known = new Set(existing.map((c) => c.name));
 
@@ -226,14 +238,24 @@ export async function growSchema(
     })),
   ];
 
-  if (added.length === 0) return { table, added, columns };
+  return { table, added, columns };
+}
+
+/** Plan the growth, then register the widened shape into LivingDNA. */
+export async function growSchema(
+  table: string,
+  additions: Array<{ name: string; type: NeuralColumnType; rationale: string }>,
+  schema: SchemaSnapshot,
+): Promise<GrowthResult> {
+  const growth = planGrowth(table, additions, schema);
+  if (growth.added.length === 0) return growth;
 
   await createSchema(
-    [{ name: table, columns }],
+    [{ name: table, columns: growth.columns }],
     `Grow ${table} to fit newly observed fields`,
   );
 
-  return { table, added, columns };
+  return growth;
 }
 
 /** Append the growth to the journal. Safe to run alongside the record insert. */

@@ -188,7 +188,7 @@ export async function neuralRequest<T = Record<string, unknown>>(
  */
 const tableQueues = new Map<string, Promise<unknown>>();
 
-function serializeByTable<T>(table: string, task: () => Promise<T>): Promise<T> {
+export function serializeByTable<T>(table: string, task: () => Promise<T>): Promise<T> {
   const previous = tableQueues.get(table) ?? Promise.resolve();
   // Run whether or not the previous write succeeded, so one failure cannot
   // wedge the queue for that table.

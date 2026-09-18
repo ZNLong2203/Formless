@@ -169,6 +169,26 @@ Design notes worth calling out:
 - **The catalogue is cached in-process** with a short TTL, invalidated the moment
   the schema grows. `GET /api/state` went 7.7s → 2.6s warm.
 
+### Tests
+
+```bash
+npm test
+```
+
+29 tests, no network, covering the three places where correctness actually
+proved fragile:
+
+| Area | What is guarded |
+|---|---|
+| Write queue | Two writes to one table never overlap; submission order is preserved; different tables still run concurrently; a failed write does not wedge the queue |
+| Journal fold | A duplicated row collapses to one column; ordering is by creation time; malformed payloads are survived; unknown types fall back to `text` |
+| Coercion | `"$2,400/month"` becomes `2400`; an unreadable figure keeps its text instead of silently becoming `0` |
+
+That last one was a real bug the suite caught on its first run: stripping the
+non-numeric characters from `"not a number"` leaves `""`, and `Number("")` is
+`0` — which is finite, so it passed the guard. A lead whose budget could not be
+parsed would have been filed as a budget of zero.
+
 ### Performance
 
 Neural Pulse round trips dominate: roughly 1s concurrent, ~3.8s serialized.
@@ -217,6 +237,7 @@ Then:
 npm run dev     # http://localhost:3000
 npm run build   # production build
 npm run lint
+npm test        # 29 tests, no network required
 ```
 
 Paste a message, or use one of the three built-in samples, and press **Ingest**.
@@ -239,7 +260,8 @@ curl localhost:3000/api/state
 ## Stack
 
 Next.js 16 (App Router, Turbopack) · React 19 · TypeScript (strict) ·
-Tailwind CSS v4 · Evorozen Neural Pulse · Google GenAI SDK · Anthropic SDK
+Tailwind CSS v4 · Vitest · Evorozen Neural Pulse · Google GenAI SDK ·
+Anthropic SDK
 
 ## Licence
 

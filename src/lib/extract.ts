@@ -116,8 +116,11 @@ export function coerceValue(raw: string, type: NeuralColumnType): unknown {
   switch (type) {
     case "number": {
       // Tolerate "$2,400/month" and "2400 USD".
-      const numeric = Number(value.replace(/[^0-9.\-]/g, ""));
-      return Number.isFinite(numeric) ? numeric : value;
+      const cleaned = value.replace(/[^0-9.\-]/g, "");
+      const numeric = Number(cleaned);
+      // Stripping a value with no digits leaves "", and Number("") is 0 — so
+      // an unreadable figure would silently be filed as zero. Keep the text.
+      return cleaned !== "" && Number.isFinite(numeric) ? numeric : value;
     }
     case "boolean":
       return /^(true|yes|y|1)$/i.test(value);
