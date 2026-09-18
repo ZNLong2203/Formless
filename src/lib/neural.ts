@@ -156,6 +156,39 @@ export async function neuralRequest<T = Record<string, unknown>>(
 }
 
 /* ------------------------------------------------------------------ */
+/* Write serialization                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Neural Pulse writes are not atomic.
+ *
+ * Measured against the live API: five concurrent `insert_data` calls into one
+ * table persisted nine rows, three of them duplicates, and dropped others —
+ * a read-modify-write race on the kernel side. The same five calls issued
+ * sequentially persisted exactly five correct rows. Writes aimed at *different*
+ * tables were verified safe to run concurrently.
+ *
+ * So every write is queued behind the previous write to the same table, while
+ * unrelated tables still proceed in parallel.
+ *
+ * Caveat: this queue is per-process. It makes a single instance correct, not a
+ * horizontally-scaled fleet — see the README for how that is handled.
+ */
+const tableQueues = new Map<string, Promise<unknown>>();
+
+function serializeByTable<T>(table: string, task: () => Promise<T>): Promise<T> {
+  const previous = tableQueues.get(table) ?? Promise.resolve();
+  // Run whether or not the previous write succeeded, so one failure cannot
+  // wedge the queue for that table.
+  const result = previous.then(task, task);
+  tableQueues.set(
+    table,
+    result.catch(() => undefined),
+  );
+  return result;
+}
+
+/* ------------------------------------------------------------------ */
 /* Typed action helpers                                                */
 /* ------------------------------------------------------------------ */
 
@@ -170,11 +203,15 @@ export async function createSchema(
   tables: NeuralTable[],
   prompt = "Register tables into LivingDNA",
 ): Promise<CreateSchemaResult> {
-  const res = await neuralRequest<Partial<CreateSchemaResult>>({
-    action_type: "create_schema",
-    prompt,
-    data_payload: { tables },
-  });
+  // Schema registration mutates the same per-table state as a row write.
+  const key = tables.map((t) => t.name).sort().join("|");
+  const res = await serializeByTable(key, () =>
+    neuralRequest<Partial<CreateSchemaResult>>({
+      action_type: "create_schema",
+      prompt,
+      data_payload: { tables },
+    }),
+  );
   return {
     executed: res.executed ?? false,
     tables_created: res.tables_created ?? [],
@@ -187,11 +224,13 @@ export async function insertData(
   record: Record<string, unknown>,
   prompt = `Insert a record into ${table}`,
 ): Promise<NeuralRow> {
-  const res = await neuralRequest<{ row: NeuralRow }>({
-    action_type: "insert_data",
-    prompt,
-    data_payload: { table, record },
-  });
+  const res = await serializeByTable(table, () =>
+    neuralRequest<{ row: NeuralRow }>({
+      action_type: "insert_data",
+      prompt,
+      data_payload: { table, record },
+    }),
+  );
   return res.row;
 }
 
@@ -214,11 +253,13 @@ export async function updateData(
   changes: Record<string, unknown>,
   prompt = `Update rows in ${table}`,
 ): Promise<number> {
-  const res = await neuralRequest<{ modified_count: number }>({
-    action_type: "update_data",
-    prompt,
-    data_payload: { table, where, changes },
-  });
+  const res = await serializeByTable(table, () =>
+    neuralRequest<{ modified_count: number }>({
+      action_type: "update_data",
+      prompt,
+      data_payload: { table, where, changes },
+    }),
+  );
   return res.modified_count ?? 0;
 }
 
@@ -227,10 +268,12 @@ export async function deleteData(
   where: Record<string, unknown>,
   prompt = `Delete rows from ${table}`,
 ): Promise<number> {
-  const res = await neuralRequest<{ deleted_count: number }>({
-    action_type: "delete_data",
-    prompt,
-    data_payload: { table, where },
-  });
+  const res = await serializeByTable(table, () =>
+    neuralRequest<{ deleted_count: number }>({
+      action_type: "delete_data",
+      prompt,
+      data_payload: { table, where },
+    }),
+  );
   return res.deleted_count ?? 0;
 }

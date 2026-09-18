@@ -2,9 +2,15 @@
  * Schema registry — the record of what shape the database currently has.
  *
  * Neural Pulse registers tables into LivingDNA but exposes no "describe schema"
- * action, so Formless keeps the catalogue in Neural Pulse itself: two meta
- * tables that are read back with `select_data`. There is no second database and
- * no local state, which is what makes the deployment stateless.
+ * action, so Formless keeps the catalogue in Neural Pulse itself. There is no
+ * second database and no local state.
+ *
+ * The catalogue is an append-only journal: one row per growth event, holding
+ * the columns added. Folding the journal yields the live schema. Two properties
+ * fall out of that choice, both of which matter against this API:
+ *   - growing a table costs exactly one write, not one write per column;
+ *   - a duplicated row (which the kernel's non-atomic writes can produce) is
+ *     harmless, because folding dedupes by column name.
  */
 
 import {
@@ -19,8 +25,11 @@ import {
 /** Catalogue of columns, keyed by table name. */
 export type SchemaSnapshot = Record<string, NeuralColumn[]>;
 
-export const COLUMN_TABLE = "formless_columns";
+export const JOURNAL_TABLE = "formless_schema_journal";
 export const EVENT_TABLE = "formless_events";
+
+/** Reserved names that hold Formless's own bookkeeping, not business records. */
+export const META_TABLE_NAMES: readonly string[] = [JOURNAL_TABLE, EVENT_TABLE];
 
 /** Columns every ingested table carries, so records are always traceable. */
 const BASE_COLUMNS: NeuralColumn[] = [
@@ -31,13 +40,11 @@ const BASE_COLUMNS: NeuralColumn[] = [
 
 const META_TABLES: NeuralTable[] = [
   {
-    name: COLUMN_TABLE,
+    name: JOURNAL_TABLE,
     columns: [
       { name: "id", type: "uuid", primary: true },
       { name: "table_name", type: "text" },
-      { name: "column_name", type: "text" },
-      { name: "column_type", type: "text" },
-      { name: "rationale", type: "text" },
+      { name: "columns_json", type: "text" },
       { name: "created_at", type: "date" },
     ],
   },
@@ -53,49 +60,113 @@ const META_TABLES: NeuralTable[] = [
   },
 ];
 
+const VALID_TYPES: readonly string[] = [
+  "uuid",
+  "text",
+  "number",
+  "boolean",
+  "date",
+  "json",
+];
+
 let metaReady: Promise<void> | undefined;
 
 /** Register the meta tables once per process. */
 export function ensureMeta(): Promise<void> {
-  metaReady ??= createSchema(
-    META_TABLES,
-    "Register Formless schema catalogue",
-  ).then(() => undefined);
+  metaReady ??= createSchema(META_TABLES, "Register Formless catalogue").then(
+    () => undefined,
+  );
+  // A failed bootstrap must not be cached as success.
+  metaReady = metaReady.catch((error) => {
+    metaReady = undefined;
+    throw error;
+  });
   return metaReady;
 }
 
-function isColumnType(value: unknown): value is NeuralColumnType {
-  return (
-    typeof value === "string" &&
-    ["uuid", "text", "number", "boolean", "date", "json"].includes(value)
-  );
+/** A single entry in the journal, as written and read back. */
+interface JournalColumn {
+  name: string;
+  type: NeuralColumnType;
+  rationale: string;
 }
 
-/** Read the live catalogue back out of Neural Pulse. */
-export async function loadSchema(): Promise<SchemaSnapshot> {
-  await ensureMeta();
-  const rows = await selectData(COLUMN_TABLE, undefined, "Load LivingDNA catalogue");
+function parseJournalColumns(raw: unknown): JournalColumn[] {
+  if (typeof raw !== "string") return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
 
-  const snapshot: SchemaSnapshot = {};
-  for (const row of rows) {
-    const table = row.table_name;
-    const name = row.column_name;
-    if (typeof table !== "string" || typeof name !== "string") continue;
-
-    const columns = (snapshot[table] ??= []);
-    if (columns.some((c) => c.name === name)) continue; // tolerate duplicates
+  const columns: JournalColumn[] = [];
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { name, type, rationale } = entry as Record<string, unknown>;
+    if (typeof name !== "string" || !name) continue;
     columns.push({
       name,
-      type: isColumnType(row.column_type) ? row.column_type : "text",
-      primary: name === "id",
+      type: (VALID_TYPES.includes(type as string)
+        ? type
+        : "text") as NeuralColumnType,
+      rationale: typeof rationale === "string" ? rationale : "",
     });
   }
-  return snapshot;
+  return columns;
+}
+
+/** Why each column exists, keyed as `table.column` — used by the UI. */
+export type RationaleMap = Record<string, string>;
+
+export interface Catalogue {
+  schema: SchemaSnapshot;
+  rationales: RationaleMap;
+}
+
+/** Fold the journal into the live schema. */
+export async function loadCatalogue(): Promise<Catalogue> {
+  await ensureMeta();
+  const rows = await selectData(JOURNAL_TABLE, undefined, "Fold LivingDNA journal");
+
+  // Oldest first, so the earliest rationale for a column is the one kept.
+  const ordered = [...rows].sort((a, b) =>
+    String(a._created_at ?? "").localeCompare(String(b._created_at ?? "")),
+  );
+
+  const schema: SchemaSnapshot = {};
+  const rationales: RationaleMap = {};
+
+  for (const row of ordered) {
+    const table = row.table_name;
+    if (typeof table !== "string" || !table) continue;
+
+    const columns = (schema[table] ??= []);
+    const known = new Set(columns.map((c) => c.name));
+
+    for (const column of parseJournalColumns(row.columns_json)) {
+      if (known.has(column.name)) continue; // dedupe replayed/duplicated rows
+      known.add(column.name);
+      columns.push({
+        name: column.name,
+        type: column.type,
+        primary: column.name === "id",
+      });
+      rationales[`${table}.${column.name}`] = column.rationale;
+    }
+  }
+
+  return { schema, rationales };
+}
+
+export async function loadSchema(): Promise<SchemaSnapshot> {
+  return (await loadCatalogue()).schema;
 }
 
 export interface GrowthResult {
   table: string;
-  added: NeuralColumn[];
+  added: JournalColumn[];
   /** Full column set after growth, as registered into LivingDNA. */
   columns: NeuralColumn[];
 }
@@ -104,7 +175,8 @@ export interface GrowthResult {
  * Widen a table to fit new columns.
  *
  * `create_schema` is re-sent with the complete column set (not just the delta)
- * so LivingDNA holds the whole shape, then the catalogue is updated to match.
+ * so LivingDNA holds the whole shape. The journal row is written by the caller
+ * via `commitGrowth`, which lets it overlap with the record insert.
  */
 export async function growSchema(
   table: string,
@@ -114,47 +186,57 @@ export async function growSchema(
   const existing = schema[table] ?? [];
   const known = new Set(existing.map((c) => c.name));
 
-  const baseToAdd = existing.length === 0 ? BASE_COLUMNS : [];
-  for (const column of baseToAdd) known.add(column.name);
+  const added: JournalColumn[] = [];
 
-  const fresh: NeuralColumn[] = [];
+  // A brand-new table gets the traceability columns before anything else.
+  if (existing.length === 0) {
+    for (const column of BASE_COLUMNS) {
+      known.add(column.name);
+      added.push({
+        name: column.name,
+        type: column.type,
+        rationale: "structural column",
+      });
+    }
+  }
+
   for (const addition of additions) {
     if (known.has(addition.name)) continue;
     known.add(addition.name);
-    fresh.push({ name: addition.name, type: addition.type });
+    added.push(addition);
   }
 
-  const columns = [...existing, ...baseToAdd, ...fresh];
-  if (fresh.length === 0 && baseToAdd.length === 0) {
-    return { table, added: [], columns };
-  }
+  const columns: NeuralColumn[] = [
+    ...existing,
+    ...added.map((c) => ({
+      name: c.name,
+      type: c.type,
+      primary: c.name === "id",
+    })),
+  ];
+
+  if (added.length === 0) return { table, added, columns };
 
   await createSchema(
     [{ name: table, columns }],
     `Grow ${table} to fit newly observed fields`,
   );
 
-  const now = new Date().toISOString();
-  const rationales = new Map(additions.map((a) => [a.name, a.rationale]));
+  return { table, added, columns };
+}
 
-  // Catalogue writes are independent; one failure should not hide the others.
-  await Promise.all(
-    [...baseToAdd, ...fresh].map((column) =>
-      insertData(
-        COLUMN_TABLE,
-        {
-          table_name: table,
-          column_name: column.name,
-          column_type: column.type,
-          rationale: rationales.get(column.name) ?? "structural column",
-          created_at: now,
-        },
-        `Catalogue ${table}.${column.name}`,
-      ),
-    ),
+/** Append the growth to the journal. Safe to run alongside the record insert. */
+export async function commitGrowth(growth: GrowthResult): Promise<void> {
+  if (growth.added.length === 0) return;
+  await insertData(
+    JOURNAL_TABLE,
+    {
+      table_name: growth.table,
+      columns_json: JSON.stringify(growth.added),
+      created_at: new Date().toISOString(),
+    },
+    `Journal ${growth.added.length} new column(s) on ${growth.table}`,
   );
-
-  return { table, added: [...baseToAdd, ...fresh], columns };
 }
 
 export async function logEvent(

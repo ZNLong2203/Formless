@@ -9,7 +9,13 @@
 import { NextResponse } from "next/server";
 import { insertData, NeuralError } from "@/lib/neural";
 import { extractEntity, hasReasoningKey } from "@/lib/extract";
-import { growSchema, loadSchema, logEvent } from "@/lib/registry";
+import {
+  commitGrowth,
+  growSchema,
+  loadSchema,
+  logEvent,
+  META_TABLE_NAMES,
+} from "@/lib/registry";
 
 export const runtime = "nodejs";
 
@@ -40,43 +46,51 @@ export async function POST(request: Request) {
     const schemaBefore = await loadSchema();
     const extraction = await extractEntity(message, schemaBefore);
 
+    // Never let the model write into Formless's own bookkeeping tables.
+    if (META_TABLE_NAMES.includes(extraction.table)) {
+      extraction.table = `${extraction.table}_records`;
+    }
+
+    const isNewTable = schemaBefore[extraction.table] === undefined;
     const growth = await growSchema(
       extraction.table,
       extraction.new_columns,
       schemaBefore,
     );
 
-    const row = await insertData(
-      extraction.table,
-      {
-        ...extraction.record,
-        source_message: message.slice(0, 2000),
-        ingested_at: new Date().toISOString(),
-      },
-      `Store ${extraction.entity_label} in ${extraction.table}`,
-    );
+    // Three different tables, so these are safe to run concurrently — writes
+    // are only serialized within a table. Journal and activity writes must not
+    // take the record down with them, hence allSettled.
+    const [recordResult] = await Promise.allSettled([
+      insertData(
+        extraction.table,
+        {
+          ...extraction.record,
+          source_message: message.slice(0, 2000),
+          ingested_at: new Date().toISOString(),
+        },
+        `Store ${extraction.entity_label} in ${extraction.table}`,
+      ),
+      commitGrowth(growth),
+      logEvent(
+        growth.added.length > 0 ? "schema_grown" : "record_added",
+        growth.added.length > 0
+          ? `${extraction.table} gained ${growth.added.map((c) => c.name).join(", ")}`
+          : `${extraction.entity_label} added to ${extraction.table}`,
+        extraction.table,
+      ),
+    ]);
 
-    await logEvent(
-      growth.added.length > 0 ? "schema_grown" : "record_added",
-      growth.added.length > 0
-        ? `${extraction.table} gained ${growth.added.map((c) => c.name).join(", ")}`
-        : `${extraction.entity_label} added to ${extraction.table}`,
-      extraction.table,
-    );
+    if (recordResult.status === "rejected") throw recordResult.reason;
 
     return NextResponse.json({
       summary: extraction.summary,
       entity: extraction.entity_label,
       table: extraction.table,
-      isNewTable: extraction.is_new_table && schemaBefore[extraction.table] === undefined,
-      addedColumns: growth.added.map((column) => ({
-        ...column,
-        rationale:
-          extraction.new_columns.find((c) => c.name === column.name)?.rationale ??
-          "structural column",
-      })),
+      isNewTable,
+      addedColumns: growth.added,
       columns: growth.columns,
-      record: row,
+      record: recordResult.value,
       confidence: extraction.confidence,
       engine: extraction.engine,
       reasoningConfigured: hasReasoningKey(),

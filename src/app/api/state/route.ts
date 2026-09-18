@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { NeuralError, selectData, type NeuralRow } from "@/lib/neural";
-import { COLUMN_TABLE, EVENT_TABLE, loadSchema } from "@/lib/registry";
+import { EVENT_TABLE, loadCatalogue, META_TABLE_NAMES } from "@/lib/registry";
 import { hasReasoningKey } from "@/lib/extract";
 
 export const runtime = "nodejs";
@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const schema = await loadSchema();
+    const { schema, rationales } = await loadCatalogue();
     const businessTables = Object.keys(schema).filter(
-      (name) => name !== COLUMN_TABLE && name !== EVENT_TABLE,
+      (name) => !META_TABLE_NAMES.includes(name),
     );
 
     // One read per table; a young table failing shouldn't blank the dashboard.
@@ -30,7 +30,10 @@ export async function GET() {
       const rows: NeuralRow[] = result.status === "fulfilled" ? result.value : [];
       return {
         name,
-        columns: schema[name] ?? [],
+        columns: (schema[name] ?? []).map((column) => ({
+          ...column,
+          rationale: rationales[`${name}.${column.name}`] ?? "",
+        })),
         rows: rows.slice(-50).reverse(),
         rowCount: rows.length,
         error: result.status === "rejected" ? String(result.reason) : undefined,
