@@ -19,6 +19,13 @@ import {
 
 export const runtime = "nodejs";
 
+/**
+ * An ingest is a model call plus several Neural Pulse round trips — about 16s.
+ * Serverless defaults cut well below that, which would fail the request in
+ * production while working locally, so the ceiling is declared explicitly.
+ */
+export const maxDuration = 60;
+
 const MAX_MESSAGE_CHARS = 8000;
 
 export async function POST(request: Request) {

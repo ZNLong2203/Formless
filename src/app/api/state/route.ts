@@ -13,6 +13,9 @@ import { hasReasoningKey } from "@/lib/extract";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Several Neural Pulse reads; comfortably above the ~3s warm path. */
+export const maxDuration = 30;
+
 export async function GET() {
   try {
     const { schema, rationales } = await loadCatalogue();
