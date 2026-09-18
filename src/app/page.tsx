@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* ------------------------------------------------------------------ */
 /* Types mirroring the API responses                                   */
@@ -48,7 +48,7 @@ interface IngestResult {
   addedColumns: Column[];
   rejectedColumns: Verdict[];
   confidence: number;
-  engine: "claude" | "gemini" | "heuristic";
+  engine: string;
   elapsedMs: number;
 }
 
@@ -64,21 +64,19 @@ interface Answer {
   scanned?: number;
 }
 
-type Tab = "send" | "ask" | "database";
-
 /* ------------------------------------------------------------------ */
 
 const SAMPLES = [
   {
-    label: "a lead",
+    label: "a sales lead",
     text: "Hi, this is Maria Chen from Belmont Dental (maria@belmontdental.com). We run 3 clinics in Austin. Our scheduling vendor contract ends in March and we budget about $2,400/month. Can you call me Tuesday?",
   },
   {
-    label: "another industry",
+    label: "a different industry",
     text: "Hello — Raj Patel, Northwind Logistics, raj@northwind.io. We operate 42 trucks across 6 depots and need dispatch software live before Q1. Budget is $9,000/month and our current NPS is 31.",
   },
   {
-    label: "a different thing",
+    label: "a support ticket",
     text: "URGENT support ticket #4471: customer Acme Tooling reports the export job has failed 14 times since Friday. Severity high. Assigned to the data platform team. First reported 2026-09-12.",
   },
 ];
@@ -91,7 +89,7 @@ const QUESTIONS = [
 
 const PHASES = [
   { at: 0, label: "reading your schema" },
-  { at: 1500, label: "deciding what this is" },
+  { at: 1500, label: "working out what this is" },
   { at: 7000, label: "reviewing the new columns" },
   { at: 14000, label: "writing it down" },
 ];
@@ -132,16 +130,13 @@ function useCountUp(value: number, duration = 550): number {
 
     let frame = 0;
     const started = performance.now();
-
     const step = (now: number) => {
       const progress = Math.min((now - started) / duration, 1);
-      // Ease out, so the last digits settle rather than snap.
       const eased = 1 - (1 - progress) ** 3;
       setShown(Math.round(from + (value - from) * eased));
       if (progress < 1) frame = requestAnimationFrame(step);
       else fromRef.current = value;
     };
-
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
   }, [value, duration]);
@@ -152,8 +147,6 @@ function useCountUp(value: number, duration = 550): number {
 /* ------------------------------------------------------------------ */
 
 export default function Console() {
-  const [tab, setTab] = useState<Tab>("send");
-
   const [message, setMessage] = useState(SAMPLES[0].text);
   const [state, setState] = useState<AppState | null>(null);
   const [result, setResult] = useState<IngestResult | null>(null);
@@ -169,6 +162,7 @@ export default function Console() {
   /** Columns to mark as amended, keyed `table.column`. */
   const [revised, setRevised] = useState<Set<string>>(new Set());
   const revisionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async (fresh = false) => {
     try {
@@ -229,9 +223,9 @@ export default function Console() {
       revisionTimer.current = setTimeout(() => setRevised(new Set()), 9000);
 
       await refresh(true);
-      // The point of the product is watching the database change shape, so the
-      // result is shown where the change happened rather than left behind.
-      setTab("database");
+      // On a phone the workspace sits below the fold, so the change would
+      // otherwise happen out of sight.
+      workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not file that");
     } finally {
@@ -254,6 +248,7 @@ export default function Console() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not answer that");
       setAnswer(data);
+      workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not answer that");
     } finally {
@@ -261,242 +256,184 @@ export default function Console() {
     }
   }
 
-  const engine = useMemo(() => {
-    if (!state) return "…";
-    if (!state.reasoningConfigured) return "no model";
-    return state.degraded ? "rate-limited" : "live";
-  }, [state]);
+  const live = state
+    ? !state.reasoningConfigured
+      ? "no model"
+      : state.degraded
+        ? "rate-limited"
+        : "live"
+    : "…";
 
   return (
-    <>
-      <Nav
-        tab={tab}
-        setTab={setTab}
-        columnCount={state?.totalColumns ?? 0}
-        engine={engine}
-        degraded={Boolean(state?.degraded)}
-      />
+    <div className="mx-auto w-full max-w-[1280px] px-5 pb-20 sm:px-8">
+      {/* ---------------- Masthead ---------------- */}
+      <header className="double-rule flex flex-wrap items-baseline gap-x-5 gap-y-2 pb-5 pt-9">
+        <h1 className="font-serif text-[30px] leading-none">Formless</h1>
+        <p className="text-[12.5px] text-dim">a CRM that builds its own database</p>
+        <span className="label ml-auto flex items-center gap-2">
+          <span
+            className={`inline-block size-1.5 rounded-full ${
+              state?.degraded ? "bg-mark" : "bg-t-number"
+            }`}
+          />
+          neural pulse · {live}
+        </span>
+      </header>
 
-      <main className="mx-auto w-full max-w-[1060px] px-5 pb-16 pt-9 sm:px-8">
-        {state?.degraded ? (
-          <Notice label="not live">
-            Showing the last captured state, because{" "}
-            {state.degradedReason ?? "the database is unreachable"}.
-          </Notice>
-        ) : state?.example && tab === "database" ? (
-          <Notice label="example">
-            This is what a database looks like after three messages. Yours is
-            empty and private — send a message and it becomes yours.
-          </Notice>
-        ) : null}
+      {/* One sentence, before anything else, answering "what is this". */}
+      <p className="mt-6 max-w-[74ch] text-[13.5px] leading-relaxed text-dim">
+        Send it any message. Formless works out what the record is, creates the
+        columns it needs, and files it — then you can question the result.{" "}
+        <span className="text-ink">You never design a schema.</span>
+      </p>
 
-        {error && (
-          <div className="mb-6 border-l-2 border-red-700 bg-red-700/[0.05] px-4 py-3 text-[12.5px] text-red-900">
-            {error}
-          </div>
-        )}
+      {error && (
+        <div className="mt-6 border-l-2 border-red-800 bg-red-800/[0.06] px-4 py-3 text-[12.5px] text-red-900">
+          {error}
+        </div>
+      )}
 
-        {tab === "send" && (
-          <div className="panel-in min-h-[46vh]" key="send">
-            <Heading
-              title="Send anything"
-              lead="An email, a note, a ticket. No form, no field mapping. The schema is an output of your data, not a precondition for it."
-            />
-
+      <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,370px)_minmax(0,1fr)] lg:gap-12">
+        {/* ---------------- Left rail: the two things you can do ------- */}
+        <div className="flex flex-col gap-9">
+          <Step
+            number="1"
+            title="Send a message"
+            lead="An email, a note, a ticket. No form, no field mapping."
+          >
             <textarea
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               rows={7}
               spellCheck={false}
               placeholder="paste a message…"
-              className="mt-5 block w-full max-w-full resize-y border border-rule bg-inset px-4 py-3.5 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
+              className="mt-3 block w-full max-w-full resize-y border border-rule bg-inset px-3.5 py-3 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
             />
 
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {SAMPLES.map((sample) => (
-                  <button
-                    key={sample.label}
-                    type="button"
-                    onClick={() => setMessage(sample.text)}
-                    className="text-[12px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
-                  >
-                    {sample.label}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={ingest}
-                disabled={busy || !message.trim()}
-                className="ml-auto bg-ink px-6 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-paper transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-rule disabled:text-faint"
-              >
-                {busy ? "working" : "send"}
-              </button>
+            <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1">
+              {SAMPLES.map((sample) => (
+                <button
+                  key={sample.label}
+                  type="button"
+                  onClick={() => setMessage(sample.text)}
+                  className="text-[11.5px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
+                >
+                  {sample.label}
+                </button>
+              ))}
             </div>
 
+            <button
+              type="button"
+              onClick={ingest}
+              disabled={busy || !message.trim()}
+              className="mt-4 w-full bg-ink py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-paper transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-rule disabled:text-faint"
+            >
+              {busy ? "working" : "send"}
+            </button>
+
             {busy && (
-              <div className="mt-4">
+              <div className="mt-3">
                 <div className="relative h-px overflow-hidden bg-rule">
                   <div className="working absolute inset-0" />
                 </div>
-                <p className="label mt-2.5 normal-case tracking-[0.08em]">
+                <p className="label mt-2 normal-case tracking-[0.08em]">
                   {PHASES[phase].label}
                 </p>
               </div>
             )}
-          </div>
-        )}
+          </Step>
 
-        {tab === "ask" && (
-          <div className="panel-in min-h-[46vh]" key="ask">
-            <Heading
-              title="Ask it anything"
-              lead="You never designed this schema, so you should not need to know it to question it."
-            />
-
-            <div className="mt-5 flex gap-2">
+          <Step
+            number="2"
+            title="Ask a question"
+            lead="You never designed this schema, so you should not need to know it to question it."
+          >
+            <div className="mt-3 flex gap-2">
               <input
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && ask()}
                 spellCheck={false}
-                placeholder="which leads have a budget over 5000?"
-                className="min-w-0 flex-1 border border-rule bg-inset px-4 py-2.5 text-[12.5px] text-ink transition placeholder:text-faint focus:border-rule-strong"
+                placeholder="ask anything…"
+                className="min-w-0 flex-1 border border-rule bg-inset px-3.5 py-2.5 text-[12.5px] text-ink transition placeholder:text-faint focus:border-rule-strong"
               />
               <button
                 type="button"
                 onClick={ask}
                 disabled={asking || !question.trim()}
-                className="shrink-0 border border-rule-strong px-6 text-[11.5px] uppercase tracking-[0.14em] transition hover:border-ink disabled:cursor-not-allowed disabled:border-rule disabled:text-faint"
+                className="shrink-0 border border-rule-strong px-4 text-[11.5px] uppercase tracking-[0.14em] transition hover:border-ink disabled:cursor-not-allowed disabled:border-rule disabled:text-faint"
               >
                 {asking ? "…" : "ask"}
               </button>
             </div>
 
-            <div className="mt-3.5 flex flex-wrap gap-x-4 gap-y-1">
+            <div className="mt-2.5 flex flex-col gap-1">
               {QUESTIONS.map((sample) => (
                 <button
                   key={sample}
                   type="button"
                   onClick={() => setQuestion(sample)}
-                  className="text-[12px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
+                  className="text-left text-[11.5px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
                 >
                   {sample}
                 </button>
               ))}
             </div>
-
-            {asking && (
-              <div className="relative mt-5 h-px overflow-hidden bg-rule">
-                <div className="working absolute inset-0" />
-              </div>
-            )}
-
-            {answer && <AnswerBlock answer={answer} />}
-          </div>
-        )}
-
-        {tab === "database" && (
-          <div className="panel-in min-h-[46vh]" key="database">
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-              <h2 className="font-serif text-[26px] leading-none">
-                Your database
-              </h2>
-              <span className="flex items-baseline gap-4">
-                <Figure value={state?.tables.length ?? 0} label="tables" />
-                <Figure value={state?.totalColumns ?? 0} label="columns" />
-                <Figure value={state?.totalRows ?? 0} label="records" />
-              </span>
-            </div>
-
-            {result && <Revision result={result} />}
-
-            <div className="mt-8 space-y-10">
-              {loading ? (
-                <p className="text-[12.5px] text-faint">reading…</p>
-              ) : state && state.tables.length > 0 ? (
-                state.tables.map((table) => (
-                  <Table key={table.name} table={table} revised={revised} />
-                ))
-              ) : (
-                <p className="text-[12.5px] text-faint">
-                  Nothing yet. Send a message and a table appears.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </main>
-
-      <footer className="mx-auto w-full max-w-[1060px] border-t border-rule px-5 py-6 sm:px-8">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-          <span className="label">schema is an output, not a plan</span>
-          <span className="label ml-auto">
-            drawn on evorozen neural pulse · livingdna
-          </span>
+          </Step>
         </div>
-      </footer>
-    </>
-  );
-}
 
-/* ------------------------------------------------------------------ */
-/* Navigation                                                          */
-/* ------------------------------------------------------------------ */
+        {/* ---------------- Right: the workspace ---------------------- */}
+        <div ref={workspaceRef} className="min-w-0 scroll-mt-6">
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 border-b border-rule pb-3">
+            <h2 className="font-serif text-[23px] leading-none">
+              Your database
+            </h2>
+            <span className="flex items-baseline gap-4">
+              <Figure value={state?.tables.length ?? 0} label="tables" />
+              <Figure value={state?.totalColumns ?? 0} label="columns" />
+              <Figure value={state?.totalRows ?? 0} label="records" />
+            </span>
+          </div>
 
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "send", label: "Send" },
-  { id: "ask", label: "Ask" },
-  { id: "database", label: "Database" },
-];
+          {state?.degraded ? (
+            <Notice label="not live">
+              Showing the last captured state, because{" "}
+              {state.degradedReason ?? "the database is unreachable"}.
+            </Notice>
+          ) : state?.example ? (
+            <Notice label="example">
+              None of this was designed — it grew from three messages. Yours is
+              empty and private until you send one.
+            </Notice>
+          ) : null}
 
-function Nav({
-  tab,
-  setTab,
-  columnCount,
-  engine,
-  degraded,
-}: {
-  tab: Tab;
-  setTab: (next: Tab) => void;
-  columnCount: number;
-  engine: string;
-  degraded: boolean;
-}) {
-  return (
-    <header className="double-rule sticky top-0 z-10 bg-paper/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1060px] flex-wrap items-center gap-x-8 gap-y-3 px-5 pt-5 sm:px-8">
-        <span className="font-serif text-[25px] leading-none">Formless</span>
+          {result && <Revision result={result} />}
+          {answer && <AnswerBlock answer={answer} />}
 
-        <nav className="order-3 flex gap-6 text-[13px] sm:order-none">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              data-active={tab === item.id}
-              className="tab"
-            >
-              {item.label}
-              {item.id === "database" && columnCount > 0 && (
-                <span className="tab-count ml-1.5">{columnCount}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <span className="label ml-auto flex items-center gap-2 pb-2.5">
-          <span
-            className={`inline-block size-1.5 rounded-full ${
-              degraded ? "bg-mark" : "bg-t-number"
-            }`}
-          />
-          neural pulse · {engine}
-        </span>
+          <div className="mt-8 space-y-10">
+            {loading ? (
+              <Skeleton />
+            ) : state && state.tables.length > 0 ? (
+              state.tables.map((table) => (
+                <Table key={table.name} table={table} revised={revised} />
+              ))
+            ) : (
+              <p className="text-[12.5px] text-faint">
+                Nothing yet. Send a message and a table appears here.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
-    </header>
+
+      <footer className="mt-20 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-rule pt-5">
+        <span className="label">schema is an output, not a plan</span>
+        <span className="label ml-auto">
+          built on evorozen neural pulse · livingdna
+        </span>
+      </footer>
+    </div>
   );
 }
 
@@ -504,13 +441,53 @@ function Nav({
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
-function Heading({ title, lead }: { title: string; lead: string }) {
+/** A numbered panel. The numeral teaches the order without instructions. */
+function Step({
+  number,
+  title,
+  lead,
+  children,
+}: {
+  number: string;
+  title: string;
+  lead: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <h2 className="font-serif text-[26px] leading-none">{title}</h2>
-      <p className="mt-3 max-w-[76ch] text-[12.5px] leading-relaxed text-faint">
-        {lead}
-      </p>
+    <section>
+      <div className="flex items-center gap-2.5">
+        <span className="step">{number}</span>
+        <h2 className="font-serif text-[20px] leading-none">{title}</h2>
+      </div>
+      <p className="mt-2 text-[12px] leading-relaxed text-faint">{lead}</p>
+      {children}
+    </section>
+  );
+}
+
+/** The shape of a table, before the table arrives. */
+function Skeleton() {
+  return (
+    <div aria-hidden className="space-y-3">
+      <div className="skeleton h-5 w-40" />
+      <div className="flex flex-wrap gap-1.5">
+        {[88, 124, 96, 140, 104, 116, 92].map((width, index) => (
+          <div
+            key={index}
+            className="skeleton h-[26px]"
+            style={{ width, animationDelay: `${index * 90}ms` }}
+          />
+        ))}
+      </div>
+      <div className="space-y-2 pt-3">
+        {[0, 1, 2].map((row) => (
+          <div
+            key={row}
+            className="skeleton h-4 w-full"
+            style={{ animationDelay: `${row * 140}ms` }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -519,7 +496,7 @@ function Figure({ value, label }: { value: number; label: string }) {
   const shown = useCountUp(value);
   return (
     <span className="flex items-baseline gap-1.5">
-      <span className="font-serif text-[21px] leading-none tabular-nums">
+      <span className="font-serif text-[19px] leading-none tabular-nums">
         {shown}
       </span>
       <span className="label">{label}</span>
@@ -535,7 +512,7 @@ function Notice({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 border-mark bg-mark/[0.05] px-4 py-3">
+    <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 border-mark bg-mark/[0.06] px-4 py-3">
       <span className="label text-mark">{label}</span>
       <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-dim">
         {children}
@@ -572,9 +549,9 @@ function Revision({ result }: { result: IngestResult }) {
         : "Record added";
 
   return (
-    <div className="panel-in mt-6 border-l-2 border-mark bg-mark/[0.05] px-4 py-4">
+    <div className="panel-in mt-5 border-l-2 border-mark bg-mark/[0.06] px-4 py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-serif text-[18px] leading-none text-mark">
+        <span className="font-serif text-[17px] leading-none text-mark">
           {headline}
         </span>
         <span className="text-[12px] text-dim">{result.table}</span>
@@ -589,7 +566,7 @@ function Revision({ result }: { result: IngestResult }) {
 
       {grew && (
         <div className="mt-4">
-          <p className="label mb-2">added</p>
+          <p className="label mb-2">columns it had to create</p>
           <ul className="space-y-1">
             {result.addedColumns.map((column) => (
               <li
@@ -613,7 +590,7 @@ function Revision({ result }: { result: IngestResult }) {
           landed: a schema that only grows is a schema nobody can use. */}
       {result.rejectedColumns.length > 0 && (
         <div className="mt-4">
-          <p className="label mb-2">held back by review</p>
+          <p className="label mb-2">columns it refused to create</p>
           <ul className="space-y-1">
             {result.rejectedColumns.map((verdict) => (
               <li
@@ -640,14 +617,14 @@ function Revision({ result }: { result: IngestResult }) {
 function AnswerBlock({ answer }: { answer: Answer }) {
   if (answer.unanswerable) {
     return (
-      <p className="panel-in mt-6 border-l-2 border-rule-strong px-4 py-2.5 text-[12.5px] text-dim">
+      <p className="panel-in mt-5 border-l-2 border-rule-strong px-4 py-2.5 text-[12.5px] text-dim">
         {answer.explanation}
       </p>
     );
   }
 
   return (
-    <div className="panel-in mt-6">
+    <div className="panel-in mt-5 border-l-2 border-rule-strong px-4 py-3.5">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <p className="text-[12.5px] text-ink">{answer.explanation}</p>
         <span className="label ml-auto">
@@ -745,16 +722,19 @@ function Table({
   return (
     <article className="min-w-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h3 className="font-serif text-[23px] leading-none">{table.name}</h3>
+        <h3 className="font-serif text-[21px] leading-none">{table.name}</h3>
         <span className="label">
           {table.columns.length} columns · {table.rowCount} records
         </span>
       </div>
 
+      <p className="label mt-2 normal-case tracking-[0.06em]">
+        hover a column to see why it exists
+      </p>
+
       {/* Compact by design. One full-width row per column turned sixteen
-          columns into a wall; as chips they read in three lines, and the
-          reasoning behind each is a tooltip away rather than in the way. */}
-      <div className="mt-3.5 flex flex-wrap gap-1.5">
+          columns into a wall; as chips they read in three lines. */}
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
         {table.columns.map((column) => (
           <ColumnChip
             key={column.name}
