@@ -26,6 +26,15 @@
 
   /* Figures, so numbers read apart from prose at a glance. */
   --figure: #7fe3c4;
+
+  /* One hue per column type. Colour here is not decoration: the shape of a
+     grown schema is easier to read when a date does not look like a name. */
+  --t-text: #9fa8bd;
+  --t-number: #5eead4;
+  --t-date: #c0b2fb;
+  --t-boolean: #ffc247;
+  --t-uuid: #6b7280;
+  --t-json: #f7a8cd;
 }
 
 @theme inline {
@@ -38,6 +47,12 @@
   --color-faint: var(--text-faint);
   --color-mark: var(--mark);
   --color-figure: var(--figure);
+  --color-t-text: var(--t-text);
+  --color-t-number: var(--t-number);
+  --color-t-date: var(--t-date);
+  --color-t-boolean: var(--t-boolean);
+  --color-t-uuid: var(--t-uuid);
+  --color-t-json: var(--t-json);
   --font-serif: var(--font-serif);
   --font-mono: var(--font-mono-sheet);
 }
@@ -66,6 +81,65 @@ body {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+/* ---------------- Navigation ---------------- */
+
+.tab {
+  position: relative;
+  padding-bottom: 10px;
+  color: var(--text-faint);
+  transition: color 0.18s ease;
+}
+
+.tab:hover {
+  color: var(--text-dim);
+}
+
+.tab[data-active="true"] {
+  color: var(--text);
+}
+
+/* The underline grows from the centre rather than appearing, so switching
+   tabs feels like a movement instead of a redraw. */
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1.5px;
+  background: var(--text);
+  transform: scaleX(0);
+  transition: transform 0.22s cubic-bezier(0.3, 0.8, 0.4, 1);
+}
+
+.tab[data-active="true"]::after {
+  transform: scaleX(1);
+}
+
+/* A count beside a tab, so the database is legible without opening it. */
+.tab-count {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+/* ---------------- Panels ---------------- */
+
+/* Switching tabs should feel like turning to a page, not a jump cut. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.panel-in {
+  animation: panel-in 0.26s ease-out both;
 }
 
 /* A table wider than the page is cut off at the edge, which reads as broken
@@ -115,6 +189,19 @@ body {
   animation:
     arrive 0.4s ease-out both,
     decay 5s ease-out 0.4s both;
+}
+
+/* A column lifts slightly under the cursor, which makes the reasoning
+   tooltip feel like something you asked for. */
+.chip {
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
 }
 
 @keyframes working {
