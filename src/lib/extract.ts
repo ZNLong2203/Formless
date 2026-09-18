@@ -11,12 +11,18 @@
  * shape is an output of the data, not a precondition for it.
  *
  * Neural Pulse ships its own `chat` action, but its upstream LLM providers are
- * currently failing (`All LLM providers failed`), so reasoning runs on Claude
- * and every byte of resulting state is persisted through Neural Pulse.
+ * currently failing (`All LLM providers failed`), so reasoning runs on a
+ * general-purpose model while every byte of resulting state is persisted
+ * through Neural Pulse.
+ *
+ * One Zod schema drives every provider: Anthropic consumes it through
+ * `zodOutputFormat`, Gemini through the JSON Schema it exports. Adding a
+ * provider means adding one function, not a second schema to keep in sync.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import type { NeuralColumnType } from "./neural";
 import type { SchemaSnapshot } from "./registry";
@@ -64,9 +70,11 @@ export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 export type Extraction = z.infer<typeof ExtractionSchema>;
 
 /** The extraction plus the coerced record ready for Neural Pulse. */
+export type Engine = "claude" | "gemini" | "heuristic";
+
 export interface ExtractionResult extends Extraction {
   record: Record<string, unknown>;
-  engine: "claude" | "heuristic";
+  engine: Engine;
 }
 
 const SYSTEM = `You are the schema architect for Formless, a CRM whose database
@@ -197,44 +205,102 @@ function heuristicExtraction(
   };
 }
 
-export function hasReasoningKey(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+/* ------------------------------------------------------------------ */
+/* Providers                                                           */
+/* ------------------------------------------------------------------ */
+
+/** Which reasoning provider this deployment is configured for. */
+export function activeEngine(): Engine {
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.ANTHROPIC_API_KEY) return "claude";
+  return "heuristic";
 }
+
+export function hasReasoningKey(): boolean {
+  return activeEngine() !== "heuristic";
+}
+
+function userPrompt(message: string, schema: SchemaSnapshot): string {
+  return `Current schema:\n${renderSchema(schema)}\n\nInbound message:\n"""\n${message}\n"""`;
+}
+
+async function extractWithClaude(
+  message: string,
+  schema: SchemaSnapshot,
+): Promise<Extraction> {
+  const client = new Anthropic();
+  const response = await client.messages.parse({
+    model: process.env.ANTHROPIC_MODEL ?? "claude-opus-5",
+    max_tokens: 4000,
+    system: SYSTEM,
+    output_config: { format: zodOutputFormat(ExtractionSchema) },
+    messages: [{ role: "user", content: userPrompt(message, schema) }],
+  });
+
+  const parsed = response.parsed_output;
+  if (!parsed) throw new Error("Claude returned no parseable output");
+  return parsed;
+}
+
+/**
+ * Gemini takes plain JSON Schema, which Zod exports directly — so the schema
+ * above stays the single source of truth. `$schema` is stripped because the
+ * API rejects the dialect marker.
+ */
+function jsonSchemaForGemini(): Record<string, unknown> {
+  const schema = z.toJSONSchema(ExtractionSchema) as Record<string, unknown>;
+  delete schema.$schema;
+  return schema;
+}
+
+async function extractWithGemini(
+  message: string,
+  schema: SchemaSnapshot,
+): Promise<Extraction> {
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  const response = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL ?? "gemini-2.5-pro",
+    contents: userPrompt(message, schema),
+    config: {
+      systemInstruction: SYSTEM,
+      responseMimeType: "application/json",
+      responseJsonSchema: jsonSchemaForGemini(),
+      temperature: 0,
+    },
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("Gemini returned an empty response");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`Gemini returned non-JSON output: ${text.slice(0, 200)}`);
+  }
+
+  // The schema is enforced server-side, but a malformed response must fail
+  // loudly here rather than corrupt the database shape downstream.
+  return ExtractionSchema.parse(parsed);
+}
+
+/* ------------------------------------------------------------------ */
 
 export async function extractEntity(
   message: string,
   schema: SchemaSnapshot,
 ): Promise<ExtractionResult> {
-  if (!hasReasoningKey()) {
-    const extraction = heuristicExtraction(message, schema);
-    return {
-      ...extraction,
-      record: buildRecord(extraction, schema),
-      engine: "heuristic",
-    };
-  }
+  const engine = activeEngine();
 
-  const client = new Anthropic();
+  const extraction =
+    engine === "gemini"
+      ? await extractWithGemini(message, schema)
+      : engine === "claude"
+        ? await extractWithClaude(message, schema)
+        : heuristicExtraction(message, schema);
 
-  const response = await client.messages.parse({
-    model: "claude-opus-5",
-    max_tokens: 4000,
-    system: SYSTEM,
-    output_config: { format: zodOutputFormat(ExtractionSchema) },
-    messages: [
-      {
-        role: "user",
-        content: `Current schema:\n${renderSchema(schema)}\n\nInbound message:\n"""\n${message}\n"""`,
-      },
-    ],
-  });
-
-  const extraction = response.parsed_output;
-  if (!extraction) {
-    throw new Error("Extraction failed: model did not return valid output");
-  }
-
-  // Guard against the model re-declaring a column that already exists.
+  // Guard against a model re-declaring a column that already exists.
   const known = new Set((schema[extraction.table] ?? []).map((c) => c.name));
   extraction.new_columns = extraction.new_columns.filter(
     (c) => !known.has(c.name),
@@ -243,6 +309,6 @@ export async function extractEntity(
   return {
     ...extraction,
     record: buildRecord(extraction, schema),
-    engine: "claude",
+    engine,
   };
 }

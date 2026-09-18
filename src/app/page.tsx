@@ -36,7 +36,7 @@ interface IngestResult {
   isNewTable: boolean;
   addedColumns: Column[];
   confidence: number;
-  engine: "claude" | "heuristic";
+  engine: "claude" | "gemini" | "heuristic";
   elapsedMs: number;
 }
 
