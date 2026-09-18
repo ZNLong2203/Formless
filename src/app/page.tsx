@@ -103,9 +103,10 @@ export default function Console() {
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  // Initial load. The rule fires because `refresh` reaches a setState, but the
+  // write happens after the network response resolves, not during this render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => void refresh(), [refresh]);
 
   useEffect(
     () => () => {
