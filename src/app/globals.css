@@ -106,6 +106,33 @@ body {
   box-decoration-break: clone;
 }
 
+/* A disclosure that stays out of the way until asked. Closed it is one line;
+   the integration story should not compete with the thing you came to do. */
+.disclose > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink-faint);
+  transition: color 0.16s ease;
+}
+
+.disclose > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclose > summary:hover {
+  color: var(--ink);
+}
+
+.disclose > summary::after {
+  content: " \203A";
+  display: inline-block;
+  transition: transform 0.18s ease;
+}
+
+.disclose[open] > summary::after {
+  transform: rotate(90deg);
+}
+
 /* ---------------- Navigation ---------------- */
 
 .tab {

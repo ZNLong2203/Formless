@@ -402,6 +402,7 @@ export default function Console() {
               </p>
             </div>
           )}
+          {mode === "send" && <Integrate />}
         </div>
 
         {/* ---------------- Right: the workspace ---------------------- */}
@@ -486,6 +487,63 @@ function Skeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * The honest answer to "nobody pastes emails by hand".
+ *
+ * The box above is one client. The endpoint behind it is the product: point an
+ * inbox, a form or a ticket system at it and the database builds itself. That
+ * has been true since the first commit; it was simply invisible.
+ */
+function Integrate() {
+  const [origin, setOrigin] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  // Read on the client so the example carries whatever host this is served on.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setOrigin(window.location.origin), []);
+
+  const snippet = `curl -X POST ${origin || "https://formless-rose.vercel.app"}/api/ingest \\
+  -H 'Content-Type: application/json' \\
+  -d '{"message": "Maria Chen, Belmont Dental, 3 clinics in Austin, $2,400/month."}'`;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Clipboard is blocked in some contexts; the text is selectable anyway.
+    }
+  }
+
+  return (
+    <details className="disclose mt-5 border-t border-rule pt-3">
+      <summary className="text-[11.5px]">
+        Not going to paste emails by hand? Send from anywhere
+      </summary>
+
+      <div className="mt-3">
+        <p className="text-[11.5px] leading-relaxed text-faint">
+          This box is one client. Point an inbox, a form or a ticket system at
+          the endpoint and the database builds itself the same way.
+        </p>
+
+        <pre className="mt-2.5 overflow-x-auto border border-rule bg-inset px-3 py-2.5 text-[11px] leading-relaxed text-dim">
+          {snippet}
+        </pre>
+
+        <button
+          type="button"
+          onClick={copy}
+          className="mt-2 text-[11px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink"
+        >
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+    </details>
   );
 }
 

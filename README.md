@@ -310,6 +310,40 @@ The first sample creates a table. The second reuses it and adds only what is
 genuinely new. The third is a different kind of thing entirely — watch a second
 table appear.
 
+### Sending from somewhere other than the browser
+
+Nobody pastes emails in by hand, and the composer in the interface is not the
+product — it is one client for it. The endpoint is the integration surface:
+point an inbox, a form, a webhook or a ticket system at it and the database
+builds itself the same way.
+
+```bash
+curl -X POST https://formless-rose.vercel.app/api/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Maria Chen, Belmont Dental, 3 clinics in Austin, $2,400/month."}'
+```
+
+The response narrates what happened — the table it chose, the columns it had to
+create, and the ones the reviewer refused:
+
+```json
+{
+  "table": "leads",
+  "isNewTable": true,
+  "addedColumns": [
+    { "name": "clinic_count", "type": "number", "rationale": "number of clinic locations operated" }
+  ],
+  "rejectedColumns": [
+    { "name": "warehouse_count", "decision": "merge", "merge_into": "depot_count",
+      "reason": "semantically equivalent facility count" }
+  ],
+  "merged": false
+}
+```
+
+Each caller is scoped by the `formless_ws` cookie, so an integration keeps its
+own database. Send the same cookie on every request to stay in one workspace.
+
 ### API
 
 ```bash
