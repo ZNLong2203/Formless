@@ -13,7 +13,6 @@ import {
   commitGrowth,
   growSchema,
   loadSchema,
-  logEvent,
   META_TABLE_NAMES,
 } from "@/lib/registry";
 
@@ -65,13 +64,16 @@ export async function POST(request: Request) {
       schemaBefore,
     );
 
-    // Three different tables, so these are safe to run concurrently — writes
-    // are only serialized within a table. Journal and activity writes must not
-    // take the record down with them, hence allSettled.
+    // Two different tables, so these are safe to run concurrently — writes are
+    // only serialized within a table. A failed journal append must not take the
+    // record down with it, hence allSettled.
     const [recordResult] = await Promise.allSettled([
       insertData(
         extraction.table,
         {
+          // The schema declares `id` as the primary key, so it gets a real
+          // value rather than sitting empty next to the kernel's own `_id`.
+          id: crypto.randomUUID(),
           ...extraction.record,
           source_message: message.slice(0, 2000),
           ingested_at: new Date().toISOString(),
@@ -79,13 +81,6 @@ export async function POST(request: Request) {
         `Store ${extraction.entity_label} in ${extraction.table}`,
       ),
       commitGrowth(growth),
-      logEvent(
-        growth.added.length > 0 ? "schema_grown" : "record_added",
-        growth.added.length > 0
-          ? `${extraction.table} gained ${growth.added.map((c) => c.name).join(", ")}`
-          : `${extraction.entity_label} added to ${extraction.table}`,
-        extraction.table,
-      ),
     ]);
 
     if (recordResult.status === "rejected") throw recordResult.reason;

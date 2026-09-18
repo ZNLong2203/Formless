@@ -107,7 +107,23 @@ lock (Redis) or an idempotency key on the API side; the journal's dedupe-on-fold
 already absorbs duplicates, which is the failure mode that would otherwise
 corrupt the schema.
 
-**2. The `chat` action is currently unavailable.**
+**2. The free tier allows 100 calls a month, which shapes the architecture.**
+
+`Rate Limit Exceeded. Your Free plan limit of 100 requests/month has been
+reached.` An uncached page view costs one call per table plus one for the
+catalogue, so a public demo can burn the month's quota in an afternoon. Three
+decisions follow directly:
+
+- the schema catalogue is a journal, so growing a table costs **one** write
+  rather than one per column;
+- `GET /api/state` holds its payload for 60s, and the app sends `?fresh=1` only
+  in the instant after an ingest, so visitors cost nothing while a new column
+  still appears immediately;
+- a quota fault serves the last good payload rather than blanking the drawing.
+
+Per ingest this is 3 calls, down from 5; per visitor, 0 rather than 4.
+
+**3. The `chat` action is currently unavailable.**
 
 Every call returns `All LLM providers failed. Last error: huggingface: internal
 error`, across repeated attempts. Neural Pulse's deterministic data plane
@@ -161,7 +177,7 @@ Neural Pulse round trips dominate: roughly 1s concurrent, ~3.8s serialized.
 |---|---|---|
 | Ingest, new table | 27.5s | 15.6s |
 | Ingest, existing table | — | 7.4s |
-| `GET /api/state` | 7.7s | 2.6s warm |
+| `GET /api/state` | 7.7s | 2.6s cold, 0 calls held |
 
 With live reasoning an ingest runs ~16s end to end: roughly 4s of model time and
 ~8s of Neural Pulse round trips. Lowering the model's thinking level cuts ~2s but

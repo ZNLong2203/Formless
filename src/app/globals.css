@@ -1,105 +1,224 @@
 @import "tailwindcss";
 
-/* ------------------------------------------------------------------ */
-/* Design tokens                                                       */
-/* ------------------------------------------------------------------ */
+/* ==================================================================
+   Formless — drafted, not generated.
+
+   The product's idea is that a database draws itself as evidence
+   arrives. So the interface is a drafting sheet: cyanotype ground,
+   chalk hairlines, annotations tied to the thing they describe, and
+   revisions marked in amber the way a draughtsman would mark them.
+   ================================================================== */
 
 :root {
-  --bg: #08090c;
-  --bg-raised: #0d0f14;
-  --bg-inset: #101219;
-  --border: #1c1f29;
-  --border-strong: #2a2e3c;
-  --text: #e8eaf0;
-  --text-muted: #8b91a3;
-  --text-faint: #5a6072;
-  --accent: #6ee7b7;
-  --accent-dim: #1b3b33;
-  --violet: #a78bfa;
-  --amber: #fbbf24;
+  --sheet: #071523;
+  --sheet-raised: #0a1d30;
+  --sheet-inset: #051020;
+
+  --line: rgb(168 205 240 / 0.16);
+  --line-mid: rgb(168 205 240 / 0.28);
+  --line-strong: rgb(168 205 240 / 0.46);
+
+  --chalk: #eef5fd;
+  --chalk-dim: #b3c8de;
+  --chalk-faint: #8099b5;
+
+  /* Revisions. A new column is an amendment to the drawing. */
+  --mark: #f2b134;
+  --mark-soft: rgb(242 177 52 / 0.14);
+
+  --figure: #7fd4c1; /* numeric values, so figures read apart from prose */
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-raised: var(--bg-raised);
-  --color-inset: var(--bg-inset);
-  --color-edge: var(--border);
-  --color-edge-strong: var(--border-strong);
-  --color-ink: var(--text);
-  --color-muted: var(--text-muted);
-  --color-faint: var(--text-faint);
-  --color-accent: var(--accent);
-  --color-violet: var(--violet);
-  --color-amber: var(--amber);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-sheet: var(--sheet);
+  --color-raised: var(--sheet-raised);
+  --color-inset: var(--sheet-inset);
+  --color-line: var(--line);
+  --color-line-mid: var(--line-mid);
+  --color-line-strong: var(--line-strong);
+  --color-chalk: var(--chalk);
+  --color-dim: var(--chalk-dim);
+  --color-faint: var(--chalk-faint);
+  --color-mark: var(--mark);
+  --color-figure: var(--figure);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono-sheet);
 }
 
 html {
   color-scheme: dark;
 }
 
+html,
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
-/* Subtle grid, so the page reads as an instrument rather than a document. */
-.grid-field {
+body {
+  background: var(--sheet);
+  color: var(--chalk);
+  font-family: var(--font-mono-sheet), ui-monospace, monospace;
+  font-size: 13.5px;
+}
+
+/* ---------------- Graph paper ---------------- */
+
+.graph {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
-  background-size: 64px 64px;
+    linear-gradient(to right, rgb(168 205 240 / 0.038) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(168 205 240 / 0.038) 1px, transparent 1px),
+    linear-gradient(to right, rgb(168 205 240 / 0.014) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(168 205 240 / 0.014) 1px, transparent 1px);
+  background-size:
+    112px 112px,
+    112px 112px,
+    16px 16px,
+    16px 16px;
 }
 
-/* ------------------------------------------------------------------ */
-/* Motion — a new column should be felt, not just listed               */
-/* ------------------------------------------------------------------ */
+/* ---------------- Drafting marks ---------------- */
 
-@keyframes column-arrive {
-  0% {
-    opacity: 0;
-    transform: translateY(-4px);
-    background-color: var(--accent-dim);
+/* Corner ticks, the way a plate is registered on a sheet. */
+.ticked {
+  position: relative;
+}
+.ticked::before,
+.ticked::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--line-strong);
+  pointer-events: none;
+}
+.ticked::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.ticked::after {
+  right: -1px;
+  bottom: -1px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* The dotted run between a part and its annotation. */
+.leader {
+  flex: 1 1 auto;
+  min-width: 1.5rem;
+  height: 1px;
+  background-image: radial-gradient(
+    circle,
+    var(--line-mid) 0.8px,
+    transparent 0.8px
+  );
+  background-size: 5px 1px;
+  background-repeat: repeat-x;
+  background-position: center;
+}
+
+.rule {
+  height: 1px;
+  background: var(--line);
+}
+
+/* Uppercase micro-labels, as on a title block. */
+.break-anywhere {
+  overflow-wrap: anywhere;
+}
+
+.stamp {
+  font-size: 10px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--chalk-faint);
+}
+
+/* ---------------- Revision motion ---------------- */
+
+/* A new row is drawn in: the leader runs out, then the text settles. */
+@keyframes draw-in {
+  from {
+    clip-path: inset(0 100% 0 0);
   }
-  60% {
-    background-color: var(--accent-dim);
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes amber-decay {
+  0%,
+  55% {
+    background-color: var(--mark-soft);
   }
   100% {
-    opacity: 1;
-    transform: none;
     background-color: transparent;
   }
 }
 
-.column-arrive {
-  animation: column-arrive 1.4s ease-out both;
+.revised {
+  animation:
+    draw-in 0.65s cubic-bezier(0.2, 0.7, 0.3, 1) both,
+    amber-decay 5s ease-out 0.65s both;
 }
 
-@keyframes pulse-ring {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
+@keyframes beacon {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.beacon {
+  animation: beacon 2.4s ease-in-out infinite;
 }
 
-.pulse-ring {
-  animation: pulse-ring 1.8s ease-in-out infinite;
+/* A surveyor's sweep while the sheet is being amended. */
+@keyframes survey {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+.survey::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 25%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(242 177 52 / 0.5),
+    transparent
+  );
+  animation: survey 1.5s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .column-arrive,
-  .pulse-ring {
+  .revised,
+  .beacon,
+  .survey::after {
     animation: none;
   }
 }
 
 ::selection {
-  background: var(--accent);
-  color: #06281f;
+  background: var(--mark);
+  color: #2a1a00;
 }
 
-/* Scrollbars that match the surface instead of fighting it. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--line-mid) transparent;
+}
+
+textarea:focus {
+  outline: none;
 }

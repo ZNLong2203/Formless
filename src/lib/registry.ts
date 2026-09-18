@@ -26,10 +26,9 @@ import {
 export type SchemaSnapshot = Record<string, NeuralColumn[]>;
 
 export const JOURNAL_TABLE = "formless_schema_journal";
-export const EVENT_TABLE = "formless_events";
 
 /** Reserved names that hold Formless's own bookkeeping, not business records. */
-export const META_TABLE_NAMES: readonly string[] = [JOURNAL_TABLE, EVENT_TABLE];
+export const META_TABLE_NAMES: readonly string[] = [JOURNAL_TABLE];
 
 /** Columns every ingested table carries, so records are always traceable. */
 const BASE_COLUMNS: NeuralColumn[] = [
@@ -45,16 +44,6 @@ const META_TABLES: NeuralTable[] = [
       { name: "id", type: "uuid", primary: true },
       { name: "table_name", type: "text" },
       { name: "columns_json", type: "text" },
-      { name: "created_at", type: "date" },
-    ],
-  },
-  {
-    name: EVENT_TABLE,
-    columns: [
-      { name: "id", type: "uuid", primary: true },
-      { name: "kind", type: "text" },
-      { name: "detail", type: "text" },
-      { name: "table_name", type: "text" },
       { name: "created_at", type: "date" },
     ],
   },
@@ -260,20 +249,4 @@ export async function commitGrowth(growth: GrowthResult): Promise<void> {
     `Journal ${growth.added.length} new column(s) on ${growth.table}`,
   );
   invalidateCatalogue();
-}
-
-export async function logEvent(
-  kind: string,
-  detail: string,
-  table: string,
-): Promise<void> {
-  try {
-    await insertData(
-      EVENT_TABLE,
-      { kind, detail, table_name: table, created_at: new Date().toISOString() },
-      "Record a Formless activity event",
-    );
-  } catch {
-    // The activity feed is cosmetic; never fail an ingest because of it.
-  }
 }
