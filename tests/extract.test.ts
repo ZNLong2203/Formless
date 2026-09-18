@@ -76,3 +76,137 @@ describe("provider selection", () => {
     expect(hasReasoningKey()).toBe(false);
   });
 });
+
+import { applyVerdicts, type Extraction, type Verdict } from "@/lib/extract";
+import type { SchemaSnapshot } from "@/lib/registry";
+
+function extraction(overrides: Partial<Extraction> = {}): Extraction {
+  return {
+    summary: "",
+    entity_label: "Acme",
+    table: "leads",
+    is_new_table: false,
+    identity_column: "email",
+    new_columns: [],
+    fields: [],
+    confidence: 0.9,
+    ...overrides,
+  };
+}
+
+const verdict = (
+  name: string,
+  decision: Verdict["decision"],
+  merge_into = "",
+): Verdict => ({ name, decision, merge_into, reason: "because" });
+
+const SCHEMA: SchemaSnapshot = {
+  leads: [
+    { name: "renewal_date", type: "date" },
+    { name: "monthly_budget", type: "number" },
+  ],
+};
+
+/**
+ * A schema that only ever grows ends up with forty ways to say "budget". The
+ * reviewer is the brake; these guard what it is allowed to do.
+ */
+describe("applyVerdicts", () => {
+  it("keeps a column the reviewer approved", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "nps", type: "number", rationale: "score" }],
+        fields: [{ column: "nps", value: "31" }],
+      }),
+      [verdict("nps", "keep")],
+      SCHEMA,
+    );
+
+    expect(result.extraction.new_columns.map((c) => c.name)).toEqual(["nps"]);
+    expect(result.rejected).toEqual([]);
+  });
+
+  it("redirects a merged column's value into the existing column", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "deadline", type: "date", rationale: "when" }],
+        fields: [{ column: "deadline", value: "2026-11-30" }],
+      }),
+      [verdict("deadline", "merge", "renewal_date")],
+      SCHEMA,
+    );
+
+    // No new column, and the value lands in the column that already meant this.
+    expect(result.extraction.new_columns).toEqual([]);
+    expect(result.extraction.fields).toEqual([
+      { column: "renewal_date", value: "2026-11-30" },
+    ]);
+    expect(result.rejected).toHaveLength(1);
+  });
+
+  it("refuses to merge into a column that does not exist", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "deadline", type: "date", rationale: "when" }],
+        fields: [{ column: "deadline", value: "2026-11-30" }],
+      }),
+      [verdict("deadline", "merge", "imaginary_column")],
+      SCHEMA,
+    );
+
+    // Better a new column than a value written into nowhere.
+    expect(result.extraction.new_columns.map((c) => c.name)).toEqual(["deadline"]);
+    expect(result.rejected).toEqual([]);
+  });
+
+  it("discards a dropped column along with its value", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "greeting", type: "text", rationale: "pleasantry" }],
+        fields: [
+          { column: "greeting", value: "Hope you are well" },
+          { column: "monthly_budget", value: "2400" },
+        ],
+      }),
+      [verdict("greeting", "drop")],
+      SCHEMA,
+    );
+
+    expect(result.extraction.new_columns).toEqual([]);
+    expect(result.extraction.fields).toEqual([
+      { column: "monthly_budget", value: "2400" },
+    ]);
+    expect(result.rejected[0].decision).toBe("drop");
+  });
+
+  it("keeps a column the reviewer said nothing about", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "nps", type: "number", rationale: "score" }],
+        fields: [{ column: "nps", value: "31" }],
+      }),
+      [],
+      SCHEMA,
+    );
+    expect(result.extraction.new_columns.map((c) => c.name)).toEqual(["nps"]);
+  });
+
+  it("leaves values for existing columns untouched", () => {
+    const result = applyVerdicts(
+      extraction({
+        new_columns: [{ name: "deadline", type: "date", rationale: "when" }],
+        fields: [
+          { column: "deadline", value: "2026-11-30" },
+          { column: "monthly_budget", value: "2400" },
+        ],
+      }),
+      [verdict("deadline", "merge", "renewal_date")],
+      SCHEMA,
+    );
+
+    expect(result.extraction.fields).toContainEqual({
+      column: "monthly_budget",
+      value: "2400",
+    });
+  });
+});

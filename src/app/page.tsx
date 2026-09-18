@@ -29,7 +29,29 @@ interface AppState {
   /** True when the live database could not be read and a capture is shown. */
   degraded?: boolean;
   degradedReason?: string;
+  /** True when this visitor's own workspace is still empty. */
+  example?: boolean;
   snapshotTaken?: string;
+}
+
+interface Verdict {
+  name: string;
+  decision: "keep" | "merge" | "drop";
+  merge_into: string;
+  reason: string;
+}
+
+interface Answer {
+  question: string;
+  unanswerable: boolean;
+  table?: string;
+  explanation: string;
+  conditions?: Array<{ column: string; op: string; value: string }>;
+  columns: Column[];
+  rows: Record<string, unknown>[];
+  matched?: number;
+  scanned?: number;
+  elapsedMs?: number;
 }
 
 interface IngestResult {
@@ -38,6 +60,9 @@ interface IngestResult {
   table: string;
   isNewTable: boolean;
   addedColumns: Column[];
+  rejectedColumns: Verdict[];
+  merged: boolean;
+  identityColumn?: string;
   confidence: number;
   engine: "claude" | "gemini" | "heuristic";
   elapsedMs: number;
@@ -92,6 +117,9 @@ export default function Sheet() {
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  const [asking, setAsking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [phase, setPhase] = useState(0);
 
@@ -170,6 +198,28 @@ export default function Sheet() {
     }
   }
 
+  async function ask() {
+    if (!question.trim() || asking) return;
+    setAsking(true);
+    setError(null);
+    setAnswer(null);
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "The question could not be put");
+      setAnswer(data);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The question could not be put");
+    } finally {
+      setAsking(false);
+    }
+  }
+
   const engineLabel = useMemo(() => {
     if (!state) return "…";
     if (!state.reasoningConfigured) return "no model — degraded";
@@ -181,12 +231,18 @@ export default function Sheet() {
       <div className="mx-auto w-full max-w-[1180px] px-4 py-7 sm:px-6 sm:py-10">
         <TitleBlock state={state} engineLabel={engineLabel} />
 
-        {state?.degraded && (
+        {state?.degraded ? (
           <SupersededStamp
-            reason={state.degradedReason ?? "the virtual database is unreachable"}
+            label="not live"
+            body={`Showing the last captured state, because ${state.degradedReason ?? "the virtual database is unreachable"}. Filing a new record will not work until the allowance returns.`}
             taken={state.snapshotTaken}
           />
-        )}
+        ) : state?.example ? (
+          <SupersededStamp
+            label="example"
+            body="This is what a drawing looks like after three messages. Your own workspace is empty and private — file a message and it becomes yours."
+          />
+        ) : null}
 
         <Intake
           message={message}
@@ -203,10 +259,18 @@ export default function Sheet() {
           </div>
         )}
 
+        <Enquiry
+          question={question}
+          setQuestion={setQuestion}
+          asking={asking}
+          answer={answer}
+          onAsk={ask}
+        />
+
         {result && <RevisionNote result={result} />}
 
         <section className="mt-12">
-          <SectionRule index="03" title="the drawing" />
+          <SectionRule index="04" title="the drawing" />
           {loading ? (
             <Placeholder>reading the virtual database…</Placeholder>
           ) : state && state.tables.length > 0 ? (
@@ -398,16 +462,18 @@ function RevisionNote({ result }: { result: IngestResult }) {
 
   return (
     <section className="mt-10">
-      <SectionRule index="02" title="revision note" />
+      <SectionRule index="03" title="revision note" />
 
       <div className="ticked mt-6 border border-mark/40 bg-mark/[0.035]">
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-mark/20 px-5 py-3">
           <span className="font-serif text-[19px] leading-none text-mark">
             {result.isNewTable
               ? "new plate drawn"
-              : amended
-                ? "schema amended"
-                : "record filed"}
+              : result.merged
+                ? "existing record updated"
+                : amended
+                  ? "schema amended"
+                  : "record filed"}
           </span>
           <span className="text-[12px] text-chalk">{result.table}</span>
           <span className="stamp ml-auto">
@@ -434,6 +500,36 @@ function RevisionNote({ result }: { result: IngestResult }) {
                 <span className="leader hidden sm:block" />
                 <span className="min-w-0 text-[12px] text-faint">
                   {column.rationale || "structural"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* The brake, shown working. A schema that only grows is a schema
+            nobody can use, so what was refused matters as much as what landed. */}
+        {result.rejectedColumns.length > 0 && (
+          <ul className="border-t border-mark/20 px-5 py-4">
+            <li className="stamp mb-2">held back by review</li>
+            {result.rejectedColumns.map((verdict) => (
+              <li
+                key={verdict.name}
+                className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 py-1"
+              >
+                <span className="text-[9.5px] text-faint">
+                  {verdict.decision === "merge" ? "\u2192" : "\u00d7"}
+                </span>
+                <span className="text-[12px] text-faint line-through">
+                  {verdict.name}
+                </span>
+                {verdict.decision === "merge" && verdict.merge_into && (
+                  <span className="text-[12px] text-chalk">
+                    {verdict.merge_into}
+                  </span>
+                )}
+                <span className="leader hidden sm:block" />
+                <span className="min-w-0 text-[11.5px] text-faint">
+                  {verdict.reason}
                 </span>
               </li>
             ))}
@@ -583,27 +679,181 @@ function Plate({
 /* Bits                                                                */
 /* ------------------------------------------------------------------ */
 
+
+/* ------------------------------------------------------------------ */
+/* Enquiry — asking a schema you never designed                        */
+/* ------------------------------------------------------------------ */
+
+const QUESTIONS = [
+  "which leads have a budget over 5000?",
+  "show me everything from Austin",
+  "any tickets marked high severity?",
+];
+
+function Enquiry({
+  question,
+  setQuestion,
+  asking,
+  answer,
+  onAsk,
+}: {
+  question: string;
+  setQuestion: (value: string) => void;
+  asking: boolean;
+  answer: Answer | null;
+  onAsk: () => void;
+}) {
+  return (
+    <section className="mt-12">
+      <SectionRule index="02" title="enquiry" />
+
+      <div className="mt-6 border border-line-mid">
+        <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+          <input
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onAsk();
+            }}
+            spellCheck={false}
+            placeholder="ask anything — you do not need to know the schema"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-chalk outline-none placeholder:text-faint"
+          />
+          <button
+            type="button"
+            onClick={onAsk}
+            disabled={asking || !question.trim()}
+            className="shrink-0 border border-line-strong px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-chalk transition hover:border-chalk disabled:cursor-not-allowed disabled:border-line disabled:text-faint"
+          >
+            {asking ? "asking" : "ask"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-5 py-2.5">
+          {QUESTIONS.map((sample) => (
+            <button
+              key={sample}
+              type="button"
+              onClick={() => setQuestion(sample)}
+              className="text-[11.5px] text-faint transition hover:text-chalk"
+            >
+              {sample}
+            </button>
+          ))}
+        </div>
+
+        {answer && <AnswerBlock answer={answer} />}
+      </div>
+    </section>
+  );
+}
+
+function AnswerBlock({ answer }: { answer: Answer }) {
+  if (answer.unanswerable) {
+    return (
+      <div className="border-t border-line px-5 py-4 text-[12px] text-dim">
+        {answer.explanation}
+      </div>
+    );
+  }
+
+  const visible = answer.columns.filter((c) => c.name !== PROVENANCE);
+
+  return (
+    <div className="border-t border-line">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3">
+        <span className="text-[12px] text-chalk">{answer.explanation}</span>
+        <span className="stamp ml-auto">
+          {answer.matched} of {answer.scanned} · {answer.table}
+        </span>
+      </div>
+
+      {/* The plan, shown so the answer can be checked rather than trusted. */}
+      {answer.conditions && answer.conditions.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-line px-5 py-2.5">
+          {answer.conditions.map((condition, index) => (
+            <span
+              key={`${condition.column}-${index}`}
+              className="border border-line px-2 py-0.5 text-[11px] text-dim"
+            >
+              {condition.column}{" "}
+              <span className="text-faint">{condition.op}</span>{" "}
+              {condition.value}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {answer.rows.length > 0 ? (
+        <div className="overflow-x-auto border-t border-line">
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr>
+                {visible.map((column) => (
+                  <th
+                    key={column.name}
+                    className="whitespace-nowrap border-b border-line-mid px-3 py-2 font-normal"
+                  >
+                    <span className="stamp">{column.name}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {answer.rows.map((row, index) => (
+                <tr key={String(row._id ?? index)}>
+                  {visible.map((column) => {
+                    const value = formatCell(row[column.name]);
+                    return (
+                      <td
+                        key={column.name}
+                        title={value}
+                        className={`max-w-[240px] truncate border-b border-line px-3 py-2.5 text-[12px] ${
+                          value === "—"
+                            ? "text-faint"
+                            : isFigure(column.type)
+                              ? "text-figure tabular-nums"
+                              : "text-dim"
+                        }`}
+                      >
+                        {value}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="border-t border-line px-5 py-4 text-[12px] text-faint">
+          nothing in the drawing matches that.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * A drawing that is no longer current gets stamped rather than thrown away.
  * The same applies here: say plainly that this is a capture, and why.
  */
 function SupersededStamp({
-  reason,
+  label,
+  body,
   taken,
 }: {
-  reason: string;
+  label: string;
+  body: string;
   taken?: string;
 }) {
   return (
     <div className="ticked mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border border-mark/45 bg-mark/[0.05] px-5 py-3.5">
       <span className="stamp shrink-0 border border-mark/60 px-2 py-1 text-mark">
-        not live
+        {label}
       </span>
-      <p className="min-w-0 text-[12px] leading-snug text-dim">
-        Showing the last captured state, because {reason}. Filing a new record
-        will not work until the allowance returns.
-      </p>
-      {taken && <span className="stamp ml-auto shrink-0">captured {taken}</span>}
+      <p className="min-w-0 flex-1 text-[12px] leading-snug text-dim">{body}</p>
+      {taken && <span className="stamp shrink-0">captured {taken}</span>}
     </div>
   );
 }

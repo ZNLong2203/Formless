@@ -34,15 +34,20 @@ export const META_TABLE_NAMES: readonly string[] = [JOURNAL_TABLE];
 /** Columns every ingested table carries, so records are always traceable. */
 const BASE_COLUMNS: NeuralColumn[] = [
   { name: "id", type: "uuid", primary: true },
+  { name: "workspace_id", type: "text" },
   { name: "source_message", type: "text" },
   { name: "ingested_at", type: "date" },
 ];
+
+/** Columns that exist for bookkeeping and should never be shown as fields. */
+export const HIDDEN_COLUMNS: readonly string[] = ["workspace_id"];
 
 const META_TABLES: NeuralTable[] = [
   {
     name: JOURNAL_TABLE,
     columns: [
       { name: "id", type: "uuid", primary: true },
+      { name: "workspace_id", type: "text" },
       { name: "table_name", type: "text" },
       { name: "columns_json", type: "text" },
       { name: "created_at", type: "date" },
@@ -126,10 +131,11 @@ export interface Catalogue {
  * record.
  */
 const CATALOGUE_TTL_MS = 10_000;
-let catalogueCache: { at: number; value: Catalogue } | undefined;
+const catalogueCache = new Map<string, { at: number; value: Catalogue }>();
 
-export function invalidateCatalogue(): void {
-  catalogueCache = undefined;
+export function invalidateCatalogue(workspaceId?: string): void {
+  if (workspaceId) catalogueCache.delete(workspaceId);
+  else catalogueCache.clear();
 }
 
 /**
@@ -170,21 +176,25 @@ export function foldJournal(rows: readonly NeuralRow[]): Catalogue {
   return { schema, rationales };
 }
 
-/** Read the journal and fold it, holding the result briefly. */
-export async function loadCatalogue(): Promise<Catalogue> {
-  if (catalogueCache && Date.now() - catalogueCache.at < CATALOGUE_TTL_MS) {
-    return catalogueCache.value;
-  }
+/** Read one workspace's journal and fold it, holding the result briefly. */
+export async function loadCatalogue(workspaceId: string): Promise<Catalogue> {
+  const held = catalogueCache.get(workspaceId);
+  if (held && Date.now() - held.at < CATALOGUE_TTL_MS) return held.value;
+
   await ensureMeta();
-  const rows = await selectData(JOURNAL_TABLE, undefined, "Fold LivingDNA journal");
+  const rows = await selectData(
+    JOURNAL_TABLE,
+    { workspace_id: workspaceId },
+    "Fold this workspace's LivingDNA journal",
+  );
 
   const catalogue = foldJournal(rows);
-  catalogueCache = { at: Date.now(), value: catalogue };
+  catalogueCache.set(workspaceId, { at: Date.now(), value: catalogue });
   return catalogue;
 }
 
-export async function loadSchema(): Promise<SchemaSnapshot> {
-  return (await loadCatalogue()).schema;
+export async function loadSchema(workspaceId: string): Promise<SchemaSnapshot> {
+  return (await loadCatalogue(workspaceId)).schema;
 }
 
 export interface GrowthResult {
@@ -259,16 +269,20 @@ export async function growSchema(
 }
 
 /** Append the growth to the journal. Safe to run alongside the record insert. */
-export async function commitGrowth(growth: GrowthResult): Promise<void> {
+export async function commitGrowth(
+  growth: GrowthResult,
+  workspaceId: string,
+): Promise<void> {
   if (growth.added.length === 0) return;
   await insertData(
     JOURNAL_TABLE,
     {
+      workspace_id: workspaceId,
       table_name: growth.table,
       columns_json: JSON.stringify(growth.added),
       created_at: new Date().toISOString(),
     },
     `Journal ${growth.added.length} new column(s) on ${growth.table}`,
   );
-  invalidateCatalogue();
+  invalidateCatalogue(workspaceId);
 }

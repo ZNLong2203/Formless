@@ -109,10 +109,16 @@ describe("planGrowth", () => {
     const growth = planGrowth("leads", [addition("company_name")], {});
     expect(growth.added.map((c) => c.name)).toEqual([
       "id",
+      "workspace_id",
       "source_message",
       "ingested_at",
       "company_name",
     ]);
+  });
+
+  it("gives every table a workspace column, so reads can be isolated", () => {
+    const growth = planGrowth("anything", [], {});
+    expect(growth.added.map((c) => c.name)).toContain("workspace_id");
   });
 
   it("does not re-add a column the table already has", () => {

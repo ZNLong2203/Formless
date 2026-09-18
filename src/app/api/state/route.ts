@@ -1,14 +1,15 @@
 /**
- * GET /api/state — the current shape of the database plus its contents.
+ * GET /api/state — the current shape of this workspace's database, and its
+ * contents.
  *
  * Everything is read back out of Neural Pulse, so what the UI renders is the
  * real state of the Virtual Database, never a local cache of record.
  *
- * The payload is held briefly between requests because the free Neural Pulse
- * tier allows only 100 calls a month, and an uncached read costs one call per
- * table per visitor — enough for a public demo to exhaust the quota in an
- * afternoon. `?fresh=1` bypasses the hold, which is what the app itself sends
- * immediately after an ingest so a new column is never shown late.
+ * Two things shape this route. First, each visitor has their own workspace, so
+ * one person's customer emails are never shown to the next. Second, the free
+ * Neural Pulse tier allows 100 calls a month, and an uncached read costs one
+ * call per table per visitor — so the payload is held briefly, and a visitor
+ * whose workspace was minted moments ago is not queried at all.
  */
 
 import { NextResponse } from "next/server";
@@ -18,9 +19,10 @@ import {
   selectData,
   type NeuralRow,
 } from "@/lib/neural";
-import { snapshotPayload } from "@/lib/snapshot";
-import { loadCatalogue, META_TABLE_NAMES } from "@/lib/registry";
+import { HIDDEN_COLUMNS, loadCatalogue, META_TABLE_NAMES } from "@/lib/registry";
 import { hasReasoningKey } from "@/lib/extract";
+import { examplePayload, snapshotPayload } from "@/lib/snapshot";
+import { attachWorkspace, resolveWorkspace } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,18 +31,22 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const PAYLOAD_TTL_MS = 60_000;
-let cached: { at: number; payload: unknown } | undefined;
+const cache = new Map<string, { at: number; payload: unknown }>();
 
-async function buildPayload() {
-  const { schema, rationales } = await loadCatalogue();
+async function buildPayload(workspaceId: string) {
+  const { schema, rationales } = await loadCatalogue(workspaceId);
   const businessTables = Object.keys(schema).filter(
     (name) => !META_TABLE_NAMES.includes(name),
   );
 
+  if (businessTables.length === 0) return examplePayload();
+
   // Reads don't mutate, so every table loads together. A young table failing
   // shouldn't blank the whole drawing, hence allSettled.
   const reads = await Promise.allSettled(
-    businessTables.map((table) => selectData(table, undefined, `Load ${table}`)),
+    businessTables.map((table) =>
+      selectData(table, { workspace_id: workspaceId }, `Load ${table}`),
+    ),
   );
 
   const tables = businessTables.map((name, index) => {
@@ -48,10 +54,12 @@ async function buildPayload() {
     const rows: NeuralRow[] = result.status === "fulfilled" ? result.value : [];
     return {
       name,
-      columns: (schema[name] ?? []).map((column) => ({
-        ...column,
-        rationale: rationales[`${name}.${column.name}`] ?? "",
-      })),
+      columns: (schema[name] ?? [])
+        .filter((column) => !HIDDEN_COLUMNS.includes(column.name))
+        .map((column) => ({
+          ...column,
+          rationale: rationales[`${name}.${column.name}`] ?? "",
+        })),
       rows: rows.slice(-50).reverse(),
       rowCount: rows.length,
       error: result.status === "rejected" ? String(result.reason) : undefined,
@@ -67,20 +75,30 @@ async function buildPayload() {
 }
 
 export async function GET(request: Request) {
+  const workspace = resolveWorkspace(request);
   const fresh = new URL(request.url).searchParams.get("fresh") === "1";
 
-  if (!fresh && cached && Date.now() - cached.at < PAYLOAD_TTL_MS) {
-    return NextResponse.json(cached.payload);
+  // A workspace minted by this request holds nothing, so proving it empty
+  // would spend a call to learn what we already know.
+  if (workspace.isNew) {
+    return attachWorkspace(NextResponse.json(examplePayload()), workspace);
+  }
+
+  const held = cache.get(workspace.id);
+  if (!fresh && held && Date.now() - held.at < PAYLOAD_TTL_MS) {
+    return attachWorkspace(NextResponse.json(held.payload), workspace);
   }
 
   try {
-    const payload = await buildPayload();
-    cached = { at: Date.now(), payload };
-    return NextResponse.json(payload);
+    const payload = await buildPayload(workspace.id);
+    cache.set(workspace.id, { at: Date.now(), payload });
+    return attachWorkspace(NextResponse.json(payload), workspace);
   } catch (error) {
-    // A fault must never blank the drawing. Prefer what this instance last
+    // A fault must never blank the drawing. Prefer what this workspace last
     // read; otherwise serve the captured snapshot, labelled as such.
-    if (cached) return NextResponse.json(cached.payload);
+    if (held) {
+      return attachWorkspace(NextResponse.json(held.payload), workspace);
+    }
 
     const reason = isQuotaError(error)
       ? "the Neural Pulse free tier's monthly call allowance is spent"
@@ -88,6 +106,9 @@ export async function GET(request: Request) {
         ? `the virtual database is unreachable (${error.message})`
         : "the virtual database is unreachable";
 
-    return NextResponse.json(snapshotPayload(reason));
+    return attachWorkspace(
+      NextResponse.json(snapshotPayload(reason)),
+      workspace,
+    );
   }
 }

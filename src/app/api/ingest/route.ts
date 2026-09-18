@@ -7,7 +7,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { insertData, isQuotaError, NeuralError } from "@/lib/neural";
+import {
+  insertData,
+  isQuotaError,
+  NeuralError,
+  selectData,
+  updateData,
+} from "@/lib/neural";
 import { extractEntity, hasReasoningKey } from "@/lib/extract";
 import {
   commitGrowth,
@@ -15,12 +21,13 @@ import {
   loadSchema,
   META_TABLE_NAMES,
 } from "@/lib/registry";
+import { attachWorkspace, resolveWorkspace } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
 /**
- * An ingest is a model call plus several Neural Pulse round trips — about 16s.
- * Serverless defaults cut well below that, which would fail the request in
+ * An ingest is two model calls plus several Neural Pulse round trips — about
+ * 20s. Serverless defaults cut well below that, which would fail the request in
  * production while working locally, so the ceiling is declared explicitly.
  */
 export const maxDuration = 60;
@@ -28,6 +35,8 @@ export const maxDuration = 60;
 const MAX_MESSAGE_CHARS = 8000;
 
 export async function POST(request: Request) {
+  const workspace = resolveWorkspace(request);
+
   let message: string;
   try {
     const body = await request.json();
@@ -49,7 +58,9 @@ export async function POST(request: Request) {
   const startedAt = Date.now();
 
   try {
-    const schemaBefore = await loadSchema();
+    // A workspace minted by this very request is known to be empty, so the
+    // read that would prove it empty is skipped.
+    const schemaBefore = workspace.isNew ? {} : await loadSchema(workspace.id);
     const extraction = await extractEntity(message, schemaBefore);
 
     // Never let the model write into Formless's own bookkeeping tables.
@@ -58,46 +69,74 @@ export async function POST(request: Request) {
     }
 
     const isNewTable = schemaBefore[extraction.table] === undefined;
-    const growth = await growSchema(
-      extraction.table,
-      extraction.new_columns,
-      schemaBefore,
-    );
 
-    // Two different tables, so these are safe to run concurrently — writes are
-    // only serialized within a table. A failed journal append must not take the
-    // record down with it, hence allSettled.
-    const [recordResult] = await Promise.allSettled([
-      insertData(
-        extraction.table,
-        {
-          // The schema declares `id` as the primary key, so it gets a real
-          // value rather than sitting empty next to the kernel's own `_id`.
-          id: crypto.randomUUID(),
-          ...extraction.record,
-          source_message: message.slice(0, 2000),
-          ingested_at: new Date().toISOString(),
-        },
-        `Store ${extraction.entity_label} in ${extraction.table}`,
-      ),
-      commitGrowth(growth),
+    // Entity resolution: a second message about the same company should update
+    // that company, not file a duplicate beside it. Only worth looking when the
+    // table already existed — a table created moments ago holds nothing.
+    //
+    // This is a read, so it is not held behind the table's write queue, and it
+    // does not depend on the widened schema. It therefore runs alongside the
+    // schema registration rather than after it.
+    const identity = extraction.identity_column;
+    const identityValue = identity ? extraction.record[identity] : undefined;
+
+    const [growth, existing] = await Promise.all([
+      growSchema(extraction.table, extraction.new_columns, schemaBefore),
+      !isNewTable && identity && identityValue !== undefined
+        ? selectData(
+            extraction.table,
+            { workspace_id: workspace.id, [identity]: identityValue },
+            `Look for an existing ${extraction.entity_label}`,
+          ).catch(() => [])
+        : Promise.resolve([]),
     ]);
 
-    if (recordResult.status === "rejected") throw recordResult.reason;
+    const matched = existing[0]?._id;
 
-    return NextResponse.json({
-      summary: extraction.summary,
-      entity: extraction.entity_label,
-      table: extraction.table,
-      isNewTable,
-      addedColumns: growth.added,
-      columns: growth.columns,
-      record: recordResult.value,
-      confidence: extraction.confidence,
-      engine: extraction.engine,
-      reasoningConfigured: hasReasoningKey(),
-      elapsedMs: Date.now() - startedAt,
-    });
+    const payload = {
+      ...extraction.record,
+      workspace_id: workspace.id,
+      source_message: message.slice(0, 2000),
+      ingested_at: new Date().toISOString(),
+    };
+
+    const [writeResult] = await Promise.allSettled([
+      matched
+        ? updateData(
+            extraction.table,
+            { workspace_id: workspace.id, [identity]: identityValue },
+            { ...extraction.record, source_message: payload.source_message },
+            `Update ${extraction.entity_label}`,
+          ).then(() => ({ ...payload, _id: matched }))
+        : insertData(
+            extraction.table,
+            { id: crypto.randomUUID(), ...payload },
+            `Store ${extraction.entity_label} in ${extraction.table}`,
+          ),
+      commitGrowth(growth, workspace.id),
+    ]);
+
+    if (writeResult.status === "rejected") throw writeResult.reason;
+
+    return attachWorkspace(
+      NextResponse.json({
+        summary: extraction.summary,
+        entity: extraction.entity_label,
+        table: extraction.table,
+        isNewTable,
+        merged: Boolean(matched),
+        identityColumn: identity || undefined,
+        addedColumns: growth.added,
+        rejectedColumns: extraction.rejected,
+        columns: growth.columns,
+        record: writeResult.value,
+        confidence: extraction.confidence,
+        engine: extraction.engine,
+        reasoningConfigured: hasReasoningKey(),
+        elapsedMs: Date.now() - startedAt,
+      }),
+      workspace,
+    );
   } catch (error) {
     if (isQuotaError(error)) {
       return NextResponse.json(

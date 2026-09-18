@@ -129,6 +129,24 @@ const TABLES = [LEADS, SUPPORT_TICKETS];
 /** Captured on 2026-09-18, the last time the live database was readable. */
 export const SNAPSHOT_TAKEN = "2026-09-18";
 
+/**
+ * The same capture, shown to a visitor whose own workspace is still empty.
+ * A blank sheet teaches nothing; an example shows what the product produces,
+ * and is labelled so nobody mistakes it for their own data.
+ */
+export function examplePayload() {
+  return {
+    tables: TABLES,
+    totalColumns: TABLES.reduce((sum, t) => sum + t.columns.length, 0),
+    totalRows: TABLES.reduce((sum, t) => sum + t.rowCount, 0),
+    reasoningConfigured: Boolean(
+      process.env.GEMINI_API_KEY ?? process.env.ANTHROPIC_API_KEY,
+    ),
+    example: true,
+    snapshotTaken: SNAPSHOT_TAKEN,
+  };
+}
+
 export function snapshotPayload(reason: string) {
   return {
     tables: TABLES,

@@ -46,8 +46,59 @@ inbound message
 
 The extraction step is given the **live schema** alongside the message, so it
 reuses a column when the concept already exists and proposes a new one only when
-the message carries something genuinely new. That feedback loop is what keeps the
-database from sprawling into hundreds of near-duplicate fields.
+the message carries something genuinely new.
+
+A second pass then challenges what it proposed. A schema that only ever grows
+ends up with forty ways to say "budget", so the reviewer merges a proposal into
+an existing column when they mean the same thing, and drops values that are
+incidental to one message. On a real run it caught both of these:
+
+```
+merge  warehouse_count → depot_count   semantically equivalent facility count
+merge  renewal_date    → deadline      the renewal date is the operative deadline
+```
+
+Without that pass, `leads` would carry four columns for two facts. The review
+runs on the reasoning model, not on Neural Pulse, so the brake costs nothing
+against the datastore's quota — and it is skipped for a table being created,
+where every column is new by definition and there is nothing to merge into.
+
+### Asking questions of a schema you never designed
+
+Because you did not design the schema, you should not need to know it to
+interrogate it. A question in plain language is planned against the live
+catalogue:
+
+```
+"which leads have a budget over 5000?"
+  → monthly_budget gt 5000     →  1 of 2 rows
+```
+
+One constraint shapes this. Neural Pulse's `select_data` matches on equality
+only — there is no `>` on the wire. So equality conditions are pushed down into
+`where` where the datastore can use them, and the rest are evaluated over the
+rows that come back. Either way it is a single call. A question the schema
+cannot answer is refused rather than guessed at.
+
+### The same company twice
+
+A second message about a company already on file updates that record rather
+than filing a duplicate beside it. The architect names the column that
+identifies the entity — usually an email — and the lookup runs alongside the
+schema registration rather than after it, since a read is not held behind the
+table's write queue.
+
+### One drawing per visitor
+
+Each visitor gets their own workspace, carried in a cookie rather than behind a
+sign-up, because a product whose whole claim is that it works before you
+configure anything should not open with a registration wall. Every read is
+filtered to that workspace, so one person's customer emails are never shown to
+the next. A workspace minted by the current request is known to be empty, so the
+read that would prove it empty is skipped — which matters at 100 calls a month.
+
+A visitor whose workspace is still empty is shown a captured example rather than
+a blank sheet, labelled so nobody mistakes it for their own data.
 
 ---
 
@@ -61,10 +112,11 @@ Virtual Database and is read back out of it.
 | Concern | Action used | Where |
 |---|---|---|
 | Register / widen a table in LivingDNA | `create_schema` | [`src/lib/registry.ts`](src/lib/registry.ts) |
-| Write a record | `insert_data` | [`src/lib/neural.ts`](src/lib/neural.ts) |
-| Read records, schema journal, activity | `select_data` | [`src/lib/neural.ts`](src/lib/neural.ts) |
+| Write a new record | `insert_data` | [`src/lib/neural.ts`](src/lib/neural.ts) |
+| Read records, the schema journal, query results | `select_data` | [`src/lib/neural.ts`](src/lib/neural.ts) |
+| Update a record the sender already had | `update_data` | [`src/app/api/ingest/route.ts`](src/app/api/ingest/route.ts) |
 
-`update_data` and `delete_data` are implemented in the client for completeness.
+`delete_data` is implemented in the client for completeness.
 
 ### Reading the schema back
 
@@ -148,12 +200,17 @@ src/
     neural.ts     Neural Pulse client — typed actions, retry with backoff,
                   trace-id propagation, per-table write serialization
     registry.ts   LivingDNA catalogue — append-only journal, fold, growth,
-                  cached read path
-    extract.ts    Reasoning layer — structured extraction against the live
-                  schema, with a deterministic fallback
+                  cached read path, scoped per workspace
+    extract.ts    Reasoning — the architect that proposes a shape, and the
+                  reviewer that challenges it. Deterministic fallback.
+    query.ts      Question → plan → answer, with the parts the datastore
+                  cannot evaluate applied here
+    workspace.ts  Cookie-scoped identity, so one visitor's rows stay theirs
+    snapshot.ts   The captured drawing, shown as an example or on a fault
   app/
-    api/ingest    POST — extract → grow → store, narrated for the UI
-    api/state     GET  — the current shape and contents of the database
+    api/ingest    POST — extract → review → grow → store or update
+    api/ask       POST — plan a question against the live catalogue
+    api/state     GET  — the current shape and contents of this workspace
     page.tsx      Console — the schema is the primary object on screen
 ```
 
