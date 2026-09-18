@@ -330,4 +330,4 @@ Anthropic SDK
 
 ## Licence
 
-MIT
+[MIT](LICENSE)
