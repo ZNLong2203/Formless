@@ -82,10 +82,40 @@ const SAMPLES = [
 ];
 
 const QUESTIONS = [
-  "which leads have a budget over 5000?",
-  "show me everything from Austin",
-  "any tickets marked high severity?",
+  { label: "which leads have a budget over 5000?", text: "which leads have a budget over 5000?" },
+  { label: "show me everything from Austin", text: "show me everything from Austin" },
+  { label: "any tickets marked high severity?", text: "any tickets marked high severity?" },
 ];
+
+type Mode = "send" | "ask";
+
+const MODES: Array<{ id: Mode; label: string }> = [
+  { id: "send", label: "Send a message" },
+  { id: "ask", label: "Ask a question" },
+];
+
+const MODE_CONFIG: Record<
+  Mode,
+  {
+    lead: string;
+    placeholder: string;
+    action: string;
+    samples: Array<{ label: string; text: string }>;
+  }
+> = {
+  send: {
+    lead: "An email, a note, a ticket. No form, no field mapping — the columns get created for you.",
+    placeholder: "paste a message…",
+    action: "send",
+    samples: SAMPLES,
+  },
+  ask: {
+    lead: "You never designed this schema, so you should not need to know it to question it.",
+    placeholder: "ask anything about what you have sent…",
+    action: "ask",
+    samples: QUESTIONS,
+  },
+};
 
 const PHASES = [
   { at: 0, label: "reading your schema" },
@@ -147,7 +177,8 @@ function useCountUp(value: number, duration = 550): number {
 /* ------------------------------------------------------------------ */
 
 export default function Console() {
-  const [message, setMessage] = useState(SAMPLES[0].text);
+  const [mode, setMode] = useState<Mode>("send");
+  const [draft, setDraft] = useState(SAMPLES[0].text);
   const [state, setState] = useState<AppState | null>(null);
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +186,6 @@ export default function Console() {
   const [loading, setLoading] = useState(true);
   const [phase, setPhase] = useState(0);
 
-  const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [asking, setAsking] = useState(false);
 
@@ -198,7 +228,7 @@ export default function Console() {
   );
 
   async function ingest() {
-    if (!message.trim() || busy) return;
+    if (!draft.trim() || busy) return;
     setPhase(0);
     setBusy(true);
     setError(null);
@@ -208,7 +238,7 @@ export default function Console() {
       const res = await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message: draft }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not file that");
@@ -234,7 +264,7 @@ export default function Console() {
   }
 
   async function ask() {
-    if (!question.trim() || asking) return;
+    if (!draft.trim() || asking) return;
     setAsking(true);
     setError(null);
     setAnswer(null);
@@ -243,7 +273,7 @@ export default function Console() {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question: draft }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not answer that");
@@ -255,6 +285,10 @@ export default function Console() {
       setAsking(false);
     }
   }
+
+  const active = MODE_CONFIG[mode];
+  const working = busy || asking;
+  const run = mode === "send" ? ingest : ask;
 
   const live = state
     ? !state.reasoningConfigured
@@ -280,10 +314,9 @@ export default function Console() {
         </span>
       </header>
 
-      {/* One sentence, before anything else, answering "what is this". */}
-      <p className="mt-6 max-w-[74ch] text-[13.5px] leading-relaxed text-dim">
-        Send it any message. Formless works out what the record is, creates the
-        columns it needs, and files it — then you can question the result.{" "}
+      {/* One line, before anything else, answering "what is this". */}
+      <p className="mt-5 text-[13px] text-dim">
+        Send any message; the columns get created for you.{" "}
         <span className="text-ink">You never design a schema.</span>
       </p>
 
@@ -295,92 +328,76 @@ export default function Console() {
 
       <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,370px)_minmax(0,1fr)] lg:gap-12">
         {/* ---------------- Left rail: the two things you can do ------- */}
-        <div className="flex flex-col gap-9">
-          <Step
-            number="1"
-            title="Send a message"
-            lead="An email, a note, a ticket. No form, no field mapping."
-          >
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              rows={7}
-              spellCheck={false}
-              placeholder="paste a message…"
-              className="mt-3 block w-full max-w-full resize-y border border-rule bg-inset px-3.5 py-3 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
-            />
-
-            <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1">
-              {SAMPLES.map((sample) => (
-                <button
-                  key={sample.label}
-                  type="button"
-                  onClick={() => setMessage(sample.text)}
-                  className="text-[11.5px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
-                >
-                  {sample.label}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={ingest}
-              disabled={busy || !message.trim()}
-              className="mt-4 w-full bg-ink py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-paper transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-rule disabled:text-faint"
-            >
-              {busy ? "working" : "send"}
-            </button>
-
-            {busy && (
-              <div className="mt-3">
-                <div className="relative h-px overflow-hidden bg-rule">
-                  <div className="working absolute inset-0" />
-                </div>
-                <p className="label mt-2 normal-case tracking-[0.08em]">
-                  {PHASES[phase].label}
-                </p>
-              </div>
-            )}
-          </Step>
-
-          <Step
-            number="2"
-            title="Ask a question"
-            lead="You never designed this schema, so you should not need to know it to question it."
-          >
-            <div className="mt-3 flex gap-2">
-              <input
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && ask()}
-                spellCheck={false}
-                placeholder="ask anything…"
-                className="min-w-0 flex-1 border border-rule bg-inset px-3.5 py-2.5 text-[12.5px] text-ink transition placeholder:text-faint focus:border-rule-strong"
-              />
+        <div>
+          {/* Send and Ask are two modes of one input, not two features. Built
+              as separate panels they duplicated a heading, a lead, a field,
+              examples and a button each — twice the furniture for one job. */}
+          <div className="flex gap-5 border-b border-rule pb-2.5">
+            {MODES.map((item) => (
               <button
+                key={item.id}
                 type="button"
-                onClick={ask}
-                disabled={asking || !question.trim()}
-                className="shrink-0 border border-rule-strong px-4 text-[11.5px] uppercase tracking-[0.14em] transition hover:border-ink disabled:cursor-not-allowed disabled:border-rule disabled:text-faint"
+                onClick={() => setMode(item.id)}
+                data-active={mode === item.id}
+                className="tab text-[13px]"
               >
-                {asking ? "…" : "ask"}
+                {item.label}
               </button>
-            </div>
+            ))}
+          </div>
 
-            <div className="mt-2.5 flex flex-col gap-1">
-              {QUESTIONS.map((sample) => (
-                <button
-                  key={sample}
-                  type="button"
-                  onClick={() => setQuestion(sample)}
-                  className="text-left text-[11.5px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
-                >
-                  {sample}
-                </button>
-              ))}
+          <p className="mt-3 text-[12px] leading-relaxed text-faint">
+            {active.lead}
+          </p>
+
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              // A question is one line, so Enter sends it. A message is not.
+              if (mode === "ask" && event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                run();
+              }
+            }}
+            rows={mode === "send" ? 7 : 3}
+            spellCheck={false}
+            placeholder={active.placeholder}
+            className="mt-3 block w-full max-w-full resize-y border border-rule bg-inset px-3.5 py-3 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
+          />
+
+          <div className="mt-2.5 flex flex-col gap-1">
+            {active.samples.map((sample) => (
+              <button
+                key={sample.label}
+                type="button"
+                onClick={() => setDraft(sample.text)}
+                className="text-left text-[11.5px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={run}
+            disabled={working || !draft.trim()}
+            className="mt-4 w-full bg-ink py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-paper transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-rule disabled:text-faint"
+          >
+            {working ? "working" : active.action}
+          </button>
+
+          {busy && (
+            <div className="mt-3">
+              <div className="relative h-px overflow-hidden bg-rule">
+                <div className="working absolute inset-0" />
+              </div>
+              <p className="label mt-2 normal-case tracking-[0.08em]">
+                {PHASES[phase].label}
+              </p>
             </div>
-          </Step>
+          )}
         </div>
 
         {/* ---------------- Right: the workspace ---------------------- */}
@@ -440,30 +457,6 @@ export default function Console() {
 /* ------------------------------------------------------------------ */
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
-
-/** A numbered panel. The numeral teaches the order without instructions. */
-function Step({
-  number,
-  title,
-  lead,
-  children,
-}: {
-  number: string;
-  title: string;
-  lead: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <div className="flex items-center gap-2.5">
-        <span className="step">{number}</span>
-        <h2 className="font-serif text-[20px] leading-none">{title}</h2>
-      </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-faint">{lead}</p>
-      {children}
-    </section>
-  );
-}
 
 /** The shape of a table, before the table arrives. */
 function Skeleton() {
@@ -726,11 +719,10 @@ function Table({
         <span className="label">
           {table.columns.length} columns · {table.rowCount} records
         </span>
+        <span className="label ml-auto normal-case tracking-[0.06em]">
+          hover a column for why it exists
+        </span>
       </div>
-
-      <p className="label mt-2 normal-case tracking-[0.06em]">
-        hover a column to see why it exists
-      </p>
 
       {/* Compact by design. One full-width row per column turned sixteen
           columns into a wall; as chips they read in three lines. */}

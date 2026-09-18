@@ -94,20 +94,6 @@ body {
   box-shadow: 0 3px 0 -2px var(--rule);
 }
 
-/* A step numeral. Numbering the panels does the teaching that a paragraph
-   of instructions would otherwise have to. */
-.step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--rule-strong);
-  border-radius: 50%;
-  font-size: 10.5px;
-  color: var(--ink-dim);
-}
-
 /* ---------------- Navigation ---------------- */
 
 .tab {
