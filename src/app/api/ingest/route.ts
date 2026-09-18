@@ -7,7 +7,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { insertData, NeuralError } from "@/lib/neural";
+import { insertData, isQuotaError, NeuralError } from "@/lib/neural";
 import { extractEntity, hasReasoningKey } from "@/lib/extract";
 import {
   commitGrowth,
@@ -99,6 +99,17 @@ export async function POST(request: Request) {
       elapsedMs: Date.now() - startedAt,
     });
   } catch (error) {
+    if (isQuotaError(error)) {
+      return NextResponse.json(
+        {
+          error:
+            "Neural Pulse has no calls left this month on the free tier, so this record cannot be written. The drawing below is the last captured state.",
+          layer: "neural-pulse",
+          quota: true,
+        },
+        { status: 429 },
+      );
+    }
     if (error instanceof NeuralError) {
       return NextResponse.json(
         { error: error.message, traceId: error.traceId, layer: "neural-pulse" },

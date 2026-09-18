@@ -26,6 +26,10 @@ interface AppState {
   totalColumns: number;
   totalRows: number;
   reasoningConfigured: boolean;
+  /** True when the live database could not be read and a capture is shown. */
+  degraded?: boolean;
+  degradedReason?: string;
+  snapshotTaken?: string;
 }
 
 interface IngestResult {
@@ -168,13 +172,21 @@ export default function Sheet() {
 
   const engineLabel = useMemo(() => {
     if (!state) return "…";
-    return state.reasoningConfigured ? "live model" : "no model — degraded";
+    if (!state.reasoningConfigured) return "no model — degraded";
+    return state.degraded ? "model live · database rate-limited" : "live model";
   }, [state]);
 
   return (
     <div className="graph min-h-screen overflow-x-hidden">
       <div className="mx-auto w-full max-w-[1180px] px-4 py-7 sm:px-6 sm:py-10">
         <TitleBlock state={state} engineLabel={engineLabel} />
+
+        {state?.degraded && (
+          <SupersededStamp
+            reason={state.degradedReason ?? "the virtual database is unreachable"}
+            taken={state.snapshotTaken}
+          />
+        )}
 
         <Intake
           message={message}
@@ -570,6 +582,31 @@ function Plate({
 /* ------------------------------------------------------------------ */
 /* Bits                                                                */
 /* ------------------------------------------------------------------ */
+
+/**
+ * A drawing that is no longer current gets stamped rather than thrown away.
+ * The same applies here: say plainly that this is a capture, and why.
+ */
+function SupersededStamp({
+  reason,
+  taken,
+}: {
+  reason: string;
+  taken?: string;
+}) {
+  return (
+    <div className="ticked mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border border-mark/45 bg-mark/[0.05] px-5 py-3.5">
+      <span className="stamp shrink-0 border border-mark/60 px-2 py-1 text-mark">
+        not live
+      </span>
+      <p className="min-w-0 text-[12px] leading-snug text-dim">
+        Showing the last captured state, because {reason}. Filing a new record
+        will not work until the allowance returns.
+      </p>
+      {taken && <span className="stamp ml-auto shrink-0">captured {taken}</span>}
+    </div>
+  );
+}
 
 function SectionRule({ index, title }: { index: string; title: string }) {
   return (

@@ -12,7 +12,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { NeuralError, selectData, type NeuralRow } from "@/lib/neural";
+import {
+  isQuotaError,
+  NeuralError,
+  selectData,
+  type NeuralRow,
+} from "@/lib/neural";
+import { snapshotPayload } from "@/lib/snapshot";
 import { loadCatalogue, META_TABLE_NAMES } from "@/lib/registry";
 import { hasReasoningKey } from "@/lib/extract";
 
@@ -72,16 +78,16 @@ export async function GET(request: Request) {
     cached = { at: Date.now(), payload };
     return NextResponse.json(payload);
   } catch (error) {
-    // A quota or network fault should not blank a drawing we already hold.
+    // A fault must never blank the drawing. Prefer what this instance last
+    // read; otherwise serve the captured snapshot, labelled as such.
     if (cached) return NextResponse.json(cached.payload);
 
-    if (error instanceof NeuralError) {
-      return NextResponse.json(
-        { error: error.message, traceId: error.traceId, layer: "neural-pulse" },
-        { status: error.status === 0 ? 503 : error.status },
-      );
-    }
-    const detail = error instanceof Error ? error.message : "Unknown failure";
-    return NextResponse.json({ error: detail }, { status: 500 });
+    const reason = isQuotaError(error)
+      ? "the Neural Pulse free tier's monthly call allowance is spent"
+      : error instanceof NeuralError
+        ? `the virtual database is unreachable (${error.message})`
+        : "the virtual database is unreachable";
+
+    return NextResponse.json(snapshotPayload(reason));
   }
 }

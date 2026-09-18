@@ -65,7 +65,19 @@ export class NeuralError extends Error {
   }
 }
 
-const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUS = new Set([408, 500, 502, 503, 504]);
+
+/**
+ * Quota exhaustion is a 429, but retrying it is pointless — the free tier's
+ * monthly allowance is gone until the month turns, and each retry spends
+ * another call against a limit that is already spent.
+ */
+export function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof NeuralError &&
+    (error.status === 429 || /rate limit/i.test(error.message))
+  );
+}
 const MAX_ATTEMPTS = 3;
 const TIMEOUT_MS = 20_000;
 
