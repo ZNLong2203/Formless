@@ -1,52 +1,54 @@
 @import "tailwindcss";
 
 /* ==================================================================
-   Formless
+   Formless — printed, not rendered.
 
-   Character lives in the typography — an engraved serif against
-   technical mono — and nowhere else. Earlier versions carried a grid
-   background, dotted leader lines and corner ticks all at once; three
-   line systems competing on one screen, which read as noise rather
-   than craft. The surface is now quiet so the data can be loud.
+   Set like a technical manual: warm paper, ink-black text, an
+   engraved serif for headings and mono for everything the machine
+   wrote. Hairline rules instead of boxes, no shadows, no gradients.
+
+   Earlier versions were dark, and dark plus low-contrast grey is the
+   worst pairing for reading — especially projected, or compressed
+   into video. Ink on paper is the most legible surface there is, and
+   unlike a default white dashboard it carries a point of view.
    ================================================================== */
 
 :root {
-  --bg: #0c0d10;
-  --panel: #131419;
-  --line: #22242c;
-  --line-strong: #32353f;
+  --paper: #faf7f0;
+  --paper-inset: #f2eee3;
+  --paper-raised: #fffdf8;
 
-  --text: #f2f4f8;
-  --text-dim: #a7adbb;
-  --text-faint: #6f7686;
+  --rule: #ded7c8;
+  --rule-strong: #bdb4a1;
+
+  --ink: #17161a;
+  --ink-dim: #4f4c46;
+  --ink-faint: #6e695f;
 
   /* Revisions. A new column is an amendment worth noticing. */
-  --mark: #ffc247;
-  --mark-soft: rgb(255 194 71 / 0.12);
+  --mark: #b4541a;
+  --mark-soft: rgb(180 84 26 / 0.08);
 
-  /* Figures, so numbers read apart from prose at a glance. */
-  --figure: #7fe3c4;
-
-  /* One hue per column type. Colour here is not decoration: the shape of a
-     grown schema is easier to read when a date does not look like a name. */
-  --t-text: #9fa8bd;
-  --t-number: #5eead4;
-  --t-date: #c0b2fb;
-  --t-boolean: #ffc247;
-  --t-uuid: #6b7280;
-  --t-json: #f7a8cd;
+  /* One hue per column type, each dark enough to read on paper. A grown
+     schema is easier to take in when a date does not look like a name. */
+  --t-text: #6b6559;
+  --t-number: #0e6a52;
+  --t-date: #57479a;
+  --t-boolean: #92600f;
+  --t-uuid: #8a8377;
+  --t-json: #93335c;
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-panel: var(--panel);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-ink: var(--text);
-  --color-dim: var(--text-dim);
-  --color-faint: var(--text-faint);
+  --color-paper: var(--paper);
+  --color-inset: var(--paper-inset);
+  --color-raised: var(--paper-raised);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-dim: var(--ink-dim);
+  --color-faint: var(--ink-faint);
   --color-mark: var(--mark);
-  --color-figure: var(--figure);
   --color-t-text: var(--t-text);
   --color-t-number: var(--t-number);
   --color-t-date: var(--t-date);
@@ -58,7 +60,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -68,19 +70,26 @@ body {
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-mono-sheet), ui-monospace, monospace;
   font-size: 13.5px;
   line-height: 1.55;
 }
 
-/* Small uppercase labels. Used sparingly — they are signposts, not texture. */
+/* Small uppercase labels, as on a plate caption. Signposts, not texture. */
 .label {
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--ink-faint);
+}
+
+/* A double rule under the masthead — a printer's device, and the one
+   flourish the page allows itself. */
+.double-rule {
+  border-bottom: 1px solid var(--rule);
+  box-shadow: 0 3px 0 -2px var(--rule);
 }
 
 /* ---------------- Navigation ---------------- */
@@ -88,20 +97,20 @@ body {
 .tab {
   position: relative;
   padding-bottom: 10px;
-  color: var(--text-faint);
+  color: var(--ink-faint);
   transition: color 0.18s ease;
 }
 
 .tab:hover {
-  color: var(--text-dim);
+  color: var(--ink-dim);
 }
 
 .tab[data-active="true"] {
-  color: var(--text);
+  color: var(--ink);
 }
 
-/* The underline grows from the centre rather than appearing, so switching
-   tabs feels like a movement instead of a redraw. */
+/* The underline grows from the centre, so switching tabs reads as a
+   movement rather than a redraw. */
 .tab::after {
   content: "";
   position: absolute;
@@ -109,7 +118,7 @@ body {
   right: 0;
   bottom: -1px;
   height: 1.5px;
-  background: var(--text);
+  background: var(--ink);
   transform: scaleX(0);
   transition: transform 0.22s cubic-bezier(0.3, 0.8, 0.4, 1);
 }
@@ -118,15 +127,13 @@ body {
   transform: scaleX(1);
 }
 
-/* A count beside a tab, so the database is legible without opening it. */
 .tab-count {
   font-size: 10px;
-  color: var(--text-faint);
+  color: var(--ink-faint);
 }
 
 /* ---------------- Panels ---------------- */
 
-/* Switching tabs should feel like turning to a page, not a jump cut. */
 @keyframes panel-in {
   from {
     opacity: 0;
@@ -156,12 +163,11 @@ body {
   bottom: 0;
   width: 52px;
   pointer-events: none;
-  background: linear-gradient(to right, transparent, var(--bg));
+  background: linear-gradient(to right, transparent, var(--paper));
 }
 
 /* ---------------- Motion ---------------- */
 
-/* A newly grown column fades up and its amber highlight decays. */
 @keyframes arrive {
   from {
     opacity: 0;
@@ -173,6 +179,7 @@ body {
   }
 }
 
+/* A newly grown column is marked, then the mark fades like drying ink. */
 @keyframes decay {
   0%,
   45% {
@@ -181,7 +188,7 @@ body {
   }
   100% {
     background-color: transparent;
-    border-color: var(--line);
+    border-color: var(--rule);
   }
 }
 
@@ -200,7 +207,7 @@ body {
 }
 
 .chip:hover {
-  border-color: var(--line-strong);
+  border-color: var(--rule-strong);
   transform: translateY(-1px);
 }
 
@@ -231,12 +238,12 @@ body {
 
 ::selection {
   background: var(--mark);
-  color: #2a1d00;
+  color: var(--paper);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: var(--rule-strong) transparent;
 }
 
 textarea:focus,

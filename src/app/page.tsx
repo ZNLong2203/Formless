@@ -291,7 +291,7 @@ export default function Console() {
         ) : null}
 
         {error && (
-          <div className="mb-6 border-l-2 border-red-400/70 bg-red-500/[0.06] px-4 py-3 text-[12.5px] text-red-200">
+          <div className="mb-6 border-l-2 border-red-700 bg-red-700/[0.05] px-4 py-3 text-[12.5px] text-red-900">
             {error}
           </div>
         )}
@@ -309,7 +309,7 @@ export default function Console() {
               rows={7}
               spellCheck={false}
               placeholder="paste a message…"
-              className="mt-5 block w-full max-w-full resize-y border border-line bg-panel px-4 py-3.5 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-line-strong"
+              className="mt-5 block w-full max-w-full resize-y border border-rule bg-inset px-4 py-3.5 text-[12.5px] leading-relaxed text-ink transition placeholder:text-faint focus:border-rule-strong"
             />
 
             <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -319,7 +319,7 @@ export default function Console() {
                     key={sample.label}
                     type="button"
                     onClick={() => setMessage(sample.text)}
-                    className="text-[12px] text-faint underline decoration-line underline-offset-4 transition hover:text-ink hover:decoration-line-strong"
+                    className="text-[12px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
                   >
                     {sample.label}
                   </button>
@@ -330,7 +330,7 @@ export default function Console() {
                 type="button"
                 onClick={ingest}
                 disabled={busy || !message.trim()}
-                className="ml-auto bg-ink px-6 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-bg transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint"
+                className="ml-auto bg-ink px-6 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-paper transition hover:opacity-85 disabled:cursor-not-allowed disabled:bg-rule disabled:text-faint"
               >
                 {busy ? "working" : "send"}
               </button>
@@ -338,7 +338,7 @@ export default function Console() {
 
             {busy && (
               <div className="mt-4">
-                <div className="relative h-px overflow-hidden bg-line">
+                <div className="relative h-px overflow-hidden bg-rule">
                   <div className="working absolute inset-0" />
                 </div>
                 <p className="label mt-2.5 normal-case tracking-[0.08em]">
@@ -363,13 +363,13 @@ export default function Console() {
                 onKeyDown={(event) => event.key === "Enter" && ask()}
                 spellCheck={false}
                 placeholder="which leads have a budget over 5000?"
-                className="min-w-0 flex-1 border border-line bg-panel px-4 py-2.5 text-[12.5px] text-ink transition placeholder:text-faint focus:border-line-strong"
+                className="min-w-0 flex-1 border border-rule bg-inset px-4 py-2.5 text-[12.5px] text-ink transition placeholder:text-faint focus:border-rule-strong"
               />
               <button
                 type="button"
                 onClick={ask}
                 disabled={asking || !question.trim()}
-                className="shrink-0 border border-line-strong px-6 text-[11.5px] uppercase tracking-[0.14em] transition hover:border-ink disabled:cursor-not-allowed disabled:border-line disabled:text-faint"
+                className="shrink-0 border border-rule-strong px-6 text-[11.5px] uppercase tracking-[0.14em] transition hover:border-ink disabled:cursor-not-allowed disabled:border-rule disabled:text-faint"
               >
                 {asking ? "…" : "ask"}
               </button>
@@ -381,7 +381,7 @@ export default function Console() {
                   key={sample}
                   type="button"
                   onClick={() => setQuestion(sample)}
-                  className="text-[12px] text-faint underline decoration-line underline-offset-4 transition hover:text-ink hover:decoration-line-strong"
+                  className="text-[12px] text-faint underline decoration-rule underline-offset-4 transition hover:text-ink hover:decoration-rule-strong"
                 >
                   {sample}
                 </button>
@@ -389,7 +389,7 @@ export default function Console() {
             </div>
 
             {asking && (
-              <div className="relative mt-5 h-px overflow-hidden bg-line">
+              <div className="relative mt-5 h-px overflow-hidden bg-rule">
                 <div className="working absolute inset-0" />
               </div>
             )}
@@ -430,7 +430,7 @@ export default function Console() {
         )}
       </main>
 
-      <footer className="mx-auto w-full max-w-[1060px] border-t border-line px-5 py-6 sm:px-8">
+      <footer className="mx-auto w-full max-w-[1060px] border-t border-rule px-5 py-6 sm:px-8">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
           <span className="label">schema is an output, not a plan</span>
           <span className="label ml-auto">
@@ -466,7 +466,7 @@ function Nav({
   degraded: boolean;
 }) {
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-bg/95 backdrop-blur">
+    <header className="double-rule sticky top-0 z-10 bg-paper/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1060px] flex-wrap items-center gap-x-8 gap-y-3 px-5 pt-5 sm:px-8">
         <span className="font-serif text-[25px] leading-none">Formless</span>
 
@@ -550,7 +550,7 @@ function ColumnChip({ column, isNew }: { column: Column; isNew: boolean }) {
     <span
       title={column.rationale || undefined}
       className={`chip inline-flex cursor-default items-baseline gap-1.5 border px-2 py-1 text-[12px] ${
-        isNew ? "revised border-mark" : "border-line"
+        isNew ? "revised border-mark" : "border-rule"
       }`}
     >
       <span className={isNew ? "text-mark" : "text-ink"}>{column.name}</span>
@@ -640,7 +640,7 @@ function Revision({ result }: { result: IngestResult }) {
 function AnswerBlock({ answer }: { answer: Answer }) {
   if (answer.unanswerable) {
     return (
-      <p className="panel-in mt-6 border-l-2 border-line-strong px-4 py-2.5 text-[12.5px] text-dim">
+      <p className="panel-in mt-6 border-l-2 border-rule-strong px-4 py-2.5 text-[12.5px] text-dim">
         {answer.explanation}
       </p>
     );
@@ -661,7 +661,7 @@ function AnswerBlock({ answer }: { answer: Answer }) {
           {answer.conditions.map((condition, index) => (
             <span
               key={`${condition.column}-${index}`}
-              className="border border-line px-2 py-0.5 text-[11px] text-dim"
+              className="border border-rule px-2 py-0.5 text-[11px] text-dim"
             >
               {condition.column}{" "}
               <span className="text-t-number">{condition.op}</span>{" "}
@@ -697,7 +697,7 @@ function Rows({
             {visible.map((column) => (
               <th
                 key={column.name}
-                className="whitespace-nowrap border-b border-line-strong px-3 py-2 font-normal"
+                className="whitespace-nowrap border-b border-rule-strong px-3 py-2 font-normal"
               >
                 <span className="label">{column.name}</span>
               </th>
@@ -713,7 +713,7 @@ function Rows({
                   <td
                     key={column.name}
                     title={value}
-                    className={`max-w-[230px] truncate border-b border-line px-3 py-2.5 text-[12px] ${
+                    className={`max-w-[230px] truncate border-b border-rule px-3 py-2.5 text-[12px] ${
                       value === "—"
                         ? "text-faint"
                         : column.type === "number"
