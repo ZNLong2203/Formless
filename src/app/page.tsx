@@ -55,6 +55,13 @@ const SAMPLES = [
   },
 ];
 
+const PHASES = [
+  { at: 0, label: "Reading the current schema…" },
+  { at: 1200, label: "Deciding what this record is…" },
+  { at: 6000, label: "Widening the table to fit it…" },
+  { at: 11000, label: "Storing the record…" },
+];
+
 /* ------------------------------------------------------------------ */
 
 function typeColor(type: string): string {
@@ -90,6 +97,20 @@ export default function Console() {
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const freshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * An ingest takes roughly 15 seconds, most of it Neural Pulse round trips.
+   * Naming the phase that is actually running beats a spinner that looks hung —
+   * and each phase here is a real step in the request, not decoration.
+   */
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const timers = PHASES.map((step, index) =>
+      setTimeout(() => setPhase(index), step.at),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [busy]);
+
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/state", { cache: "no-store" });
@@ -117,6 +138,7 @@ export default function Console() {
 
   async function ingest() {
     if (!message.trim() || busy) return;
+    setPhase(0);
     setBusy(true);
     setError(null);
     setResult(null);
@@ -228,7 +250,7 @@ export default function Console() {
 
             {busy && (
               <p className="mt-2.5 text-center text-[11.5px] text-faint">
-                Extracting entities, then widening the table to fit them
+                {PHASES[phase].label}
               </p>
             )}
           </div>

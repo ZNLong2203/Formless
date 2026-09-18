@@ -113,9 +113,12 @@ Every call returns `All LLM providers failed. Last error: huggingface: internal
 error`, across repeated attempts. Neural Pulse's deterministic data plane
 (`create_schema`, `insert_data`, `select_data`) is solid; its bundled LLM is not.
 
-Formless therefore runs reasoning on **Claude (`claude-opus-5`)** with structured
-outputs, and keeps **all** logic, memory and data in Neural Pulse. Nothing in the
-demo depends on an endpoint that is down. If a reasoning key is absent the app
+Formless therefore runs reasoning on **Gemini (`gemini-3.8-flash`)** with
+structured outputs, and keeps **all** logic, memory and data in Neural Pulse.
+Nothing in the demo depends on an endpoint that is down. The provider is
+pluggable — one Zod schema drives both Gemini (via the JSON Schema it exports)
+and Claude (via `zodOutputFormat`), so there is no second schema to keep in
+sync and swapping providers is one function, not a rewrite. If a reasoning key is absent the app
 falls back to a deterministic extractor so the schema-growth behaviour is still
 demonstrable end to end — degraded, clearly labelled in the UI, never broken.
 
@@ -160,6 +163,11 @@ Neural Pulse round trips dominate: roughly 1s concurrent, ~3.8s serialized.
 | Ingest, existing table | — | 7.4s |
 | `GET /api/state` | 7.7s | 2.6s warm |
 
+With live reasoning an ingest runs ~16s end to end: roughly 4s of model time and
+~8s of Neural Pulse round trips. Lowering the model's thinking level cuts ~2s but
+the schema decision *is* the product, so the quality is kept and the UI instead
+names the phase that is actually running.
+
 ---
 
 ## Running it
@@ -178,9 +186,13 @@ Create `.env.local`:
 # Required — the Virtual Database. Get a key at https://pulse.evorozen.com
 EVOROZEN_API_KEY=evo_live_...
 
-# Optional — reasoning. Without it the app runs a deterministic extractor
-# and says so in the UI.
-ANTHROPIC_API_KEY=sk-ant-...
+# Reasoning provider. Gemini takes precedence when both are set. With neither,
+# the app runs a deterministic extractor and labels itself as degraded in the UI.
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.8-flash
+
+# ANTHROPIC_API_KEY=sk-ant-...
+# ANTHROPIC_MODEL=claude-opus-5
 ```
 
 Then:
@@ -211,7 +223,7 @@ curl localhost:3000/api/state
 ## Stack
 
 Next.js 16 (App Router, Turbopack) · React 19 · TypeScript (strict) ·
-Tailwind CSS v4 · Evorozen Neural Pulse · Anthropic SDK
+Tailwind CSS v4 · Evorozen Neural Pulse · Google GenAI SDK · Anthropic SDK
 
 ## Licence
 

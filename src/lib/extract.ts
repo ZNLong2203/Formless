@@ -260,7 +260,7 @@ async function extractWithGemini(
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   const response = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL ?? "gemini-2.5-pro",
+    model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash",
     contents: userPrompt(message, schema),
     config: {
       systemInstruction: SYSTEM,
