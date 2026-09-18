@@ -10,6 +10,14 @@ screen. The schema is an output of your data, not a precondition for it.
 Built for **Evorozen Apex: NextGen AI Buildathon** on the **Evorozen Neural Pulse**
 LivingDNA virtual database.
 
+**Documentation**
+
+| | |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | The system module by module, both request flows, failure behaviour |
+| [docs/neural-pulse.md](docs/neural-pulse.md) | How the Evorozen API is used, what was measured about it, notes for others building on it |
+| [docs/decisions.md](docs/decisions.md) | Why the system is built this way — including what turned out to be wrong |
+
 ---
 
 ## The problem
